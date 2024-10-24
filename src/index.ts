@@ -23,10 +23,13 @@ interface Dot {
 interface Enemy {
     id: string;
     type: 'octopus' | 'fish';
+    tier: 'easy' | 'medium' | 'hard';
     x: number;
     y: number;
     angle: number;
-    health: number; // Add health property
+    health: number;
+    speed: number;
+    damage: number;
 }
 
 class Game {
@@ -55,6 +58,11 @@ class Game {
     private readonly ENEMY_DAMAGE = 5;
     private readonly DAMAGE_COOLDOWN = 1000; // 1 second cooldown
     private lastDamageTime: number = 0;
+    private readonly ENEMY_COLORS = {
+        easy: 'green',
+        medium: 'orange',
+        hard: 'red'
+    };
 
     constructor() {
         console.log('Game constructor called');
@@ -341,6 +349,12 @@ class Game {
             this.ctx.translate(enemy.x, enemy.y);
             this.ctx.rotate(enemy.angle);
             
+            // Draw enemy with color based on tier
+            this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
+            this.ctx.beginPath();
+            this.ctx.arc(0, 0, 20, 0, Math.PI * 2);
+            this.ctx.fill();
+
             if (enemy.type === 'octopus') {
                 this.ctx.drawImage(this.octopusSprite, -20, -20, 40, 40);
             } else {
@@ -350,10 +364,16 @@ class Game {
             this.ctx.restore();
 
             // Draw health bar
+            const maxHealth = enemy.tier === 'easy' ? 30 : enemy.tier === 'medium' ? 50 : 80;
             this.ctx.fillStyle = 'red';
             this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50, 5);
             this.ctx.fillStyle = 'green';
-            this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50 * (enemy.health / this.ENEMY_MAX_HEALTH), 5);
+            this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50 * (enemy.health / maxHealth), 5);
+
+            // Draw tier indicator
+            this.ctx.fillStyle = 'white';
+            this.ctx.font = '12px Arial';
+            this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 15, enemy.y + 35);
         });
 
         this.ctx.restore();

@@ -41,10 +41,13 @@ interface Dot {
 interface Enemy {
   id: string;
   type: 'octopus' | 'fish';
+  tier: 'easy' | 'medium' | 'hard';
   x: number;
   y: number;
   angle: number;
   health: number;
+  speed: number;
+  damage: number;
 }
 
 const players: Record<string, Player> = {};
@@ -60,14 +63,35 @@ const ENEMY_MAX_HEALTH = 50;
 const PLAYER_DAMAGE = 10;
 const ENEMY_DAMAGE = 5;
 
+const ENEMY_TIERS = {
+  easy: { health: 30, speed: 1, damage: 5, probability: 0.5 },
+  medium: { health: 50, speed: 1.5, damage: 10, probability: 0.3 },
+  hard: { health: 80, speed: 2, damage: 15, probability: 0.2 }
+};
+
 function createEnemy(): Enemy {
+  const tierRoll = Math.random();
+  let tier: 'easy' | 'medium' | 'hard';
+  if (tierRoll < ENEMY_TIERS.easy.probability) {
+    tier = 'easy';
+  } else if (tierRoll < ENEMY_TIERS.easy.probability + ENEMY_TIERS.medium.probability) {
+    tier = 'medium';
+  } else {
+    tier = 'hard';
+  }
+
+  const tierData = ENEMY_TIERS[tier];
+
   return {
     id: Math.random().toString(36).substr(2, 9),
     type: Math.random() < 0.5 ? 'octopus' : 'fish',
+    tier: tier,
     x: Math.random() * WORLD_WIDTH,
     y: Math.random() * WORLD_HEIGHT,
     angle: Math.random() * Math.PI * 2,
-    health: ENEMY_MAX_HEALTH
+    health: tierData.health,
+    speed: tierData.speed,
+    damage: tierData.damage
   };
 }
 
@@ -75,12 +99,12 @@ function moveEnemies() {
   enemies.forEach(enemy => {
     if (enemy.type === 'octopus') {
       // Octopus moves randomly
-      enemy.x += Math.random() * 4 - 2;
-      enemy.y += Math.random() * 4 - 2;
+      enemy.x += (Math.random() * 4 - 2) * enemy.speed;
+      enemy.y += (Math.random() * 4 - 2) * enemy.speed;
     } else {
       // Fish moves in a straight line
-      enemy.x += Math.cos(enemy.angle) * 2;
-      enemy.y += Math.sin(enemy.angle) * 2;
+      enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
+      enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
     }
 
     // Wrap around the world
@@ -168,7 +192,7 @@ io.on('connection', (socket) => {
       }
 
       // Enemy damages player
-      player.health -= ENEMY_DAMAGE;
+      player.health -= enemy.damage;
       io.emit('playerDamaged', { playerId: player.id, health: player.health });
 
       if (player.health <= 0) {
