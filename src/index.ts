@@ -87,6 +87,7 @@ class Game {
     private readonly ENEMY_CORAL_MAX_HEALTH = 50;
     private items: Item[] = [];
     private itemSprites: Record<string, HTMLImageElement> = {};
+    private isInventoryOpen: boolean = false;
 
     constructor() {
         console.log('Game constructor called');
@@ -227,18 +228,21 @@ class Game {
 
     private setupEventListeners() {
         document.addEventListener('keydown', (event) => {
+            if (event.key === 'i' || event.key === 'I') {
+                this.toggleInventory();
+                return;
+            }
+
+            if (this.isInventoryOpen) {
+                if (event.key >= '1' && event.key <= '5') {
+                    const index = parseInt(event.key) - 1;
+                    this.useItemFromInventory(index);
+                }
+                return;
+            }
+
             this.keysPressed.add(event.key);
             this.updatePlayerVelocity();
-            if (event.key >= '1' && event.key <= '5') {
-                const index = parseInt(event.key) - 1;
-                const socketId = this.socket.id;
-                if (socketId) {
-                    const player = this.players.get(socketId);
-                    if (player && player.inventory[index]) {
-                        this.socket.emit('useItem', player.inventory[index].id);
-                    }
-                }
-            }
         });
 
         document.addEventListener('keyup', (event) => {
@@ -406,130 +410,191 @@ class Game {
         });
     }
 
+    private toggleInventory() {
+        this.isInventoryOpen = !this.isInventoryOpen;
+    }
+
+    private useItemFromInventory(index: number) {
+        const socketId = this.socket.id;
+        if (socketId) {
+            const player = this.players.get(socketId);
+            if (player && player.inventory[index]) {
+                this.socket.emit('useItem', player.inventory[index].id);
+            }
+        }
+    }
+
+    private renderInventoryMenu() {
+        const socketId = this.socket.id;
+        if (!socketId) return;
+
+        const player = this.players.get(socketId);
+        if (!player) return;
+
+        // Darken the background
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Draw inventory background
+        this.ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
+        this.ctx.fillRect(200, 100, 400, 400);
+
+        // Draw inventory title
+        this.ctx.fillStyle = 'black';
+        this.ctx.font = '24px Arial';
+        this.ctx.fillText('Inventory', 350, 140);
+
+        // Draw inventory slots
+        player.inventory.forEach((item, index) => {
+            const x = 250 + (index % 3) * 100;
+            const y = 200 + Math.floor(index / 3) * 100;
+
+            this.ctx.fillStyle = 'white';
+            this.ctx.fillRect(x, y, 80, 80);
+
+            const sprite = this.itemSprites[item.type];
+            this.ctx.drawImage(sprite, x + 10, y + 10, 60, 60);
+
+            this.ctx.fillStyle = 'black';
+            this.ctx.font = '16px Arial';
+            this.ctx.fillText(`${index + 1}`, x + 5, y + 20);
+        });
+
+        // Draw instructions
+        this.ctx.fillStyle = 'black';
+        this.ctx.font = '16px Arial';
+        this.ctx.fillText('Press 1-5 to use an item', 300, 480);
+        this.ctx.fillText('Press I to close inventory', 300, 510);
+    }
+
     private gameLoop() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.fillStyle = '#00FFFF';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        this.ctx.save();
-        this.ctx.translate(-this.cameraX, -this.cameraY);
-
-        // Draw world bounds
-        this.ctx.strokeStyle = 'black';
-        this.ctx.strokeRect(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT);
-
-        // Draw dots
-        this.ctx.fillStyle = 'yellow';
-        this.dots.forEach(dot => {
-            this.ctx.beginPath();
-            this.ctx.arc(dot.x, dot.y, this.DOT_SIZE, 0, Math.PI * 2);
-            this.ctx.fill();
-        });
-
-        this.players.forEach((player, id) => {
-            if (id === this.socket.id) {
-                this.updatePlayerPosition(player);
-            }
-
+        if (!this.isInventoryOpen) {
             this.ctx.save();
-            this.ctx.translate(player.x, player.y);
-            this.ctx.rotate(player.angle);
-            
-            // Draw the sprite
-            this.ctx.drawImage(this.playerSprite, -this.playerSprite.width / 2, -this.playerSprite.height / 2);
-            
-            this.ctx.restore();
+            this.ctx.translate(-this.cameraX, -this.cameraY);
 
-            // Draw score
-            this.ctx.fillStyle = 'black';
-            this.ctx.font = '16px Arial';
-            this.ctx.fillText(`Score: ${player.score}`, player.x - 30, player.y - 30);
+            // Draw world bounds
+            this.ctx.strokeStyle = 'black';
+            this.ctx.strokeRect(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT);
 
-            // Draw health bar
-            this.ctx.fillStyle = 'red';
-            this.ctx.fillRect(player.x - 25, player.y - 40, 50, 5);
-            this.ctx.fillStyle = 'green';
-            this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / this.PLAYER_MAX_HEALTH), 5);
-        });
+            // Draw dots
+            this.ctx.fillStyle = 'yellow';
+            this.dots.forEach(dot => {
+                this.ctx.beginPath();
+                this.ctx.arc(dot.x, dot.y, this.DOT_SIZE, 0, Math.PI * 2);
+                this.ctx.fill();
+            });
 
-        // Draw enemies
-        this.enemies.forEach(enemy => {
-            this.ctx.save();
-            this.ctx.translate(enemy.x, enemy.y);
-            this.ctx.rotate(enemy.angle);
-            
-            // Draw enemy with color based on tier
-            this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
-            this.ctx.beginPath();
-            this.ctx.arc(0, 0, 20, 0, Math.PI * 2);
-            this.ctx.fill();
-
-            if (enemy.type === 'octopus') {
-                this.ctx.drawImage(this.octopusSprite, -20, -20, 40, 40);
-            } else {
-                this.ctx.drawImage(this.fishSprite, -20, -20, 40, 40);
-            }
-            
-            this.ctx.restore();
-
-            // Draw health bar
-            const maxHealth = enemy.tier === 'easy' ? 30 : enemy.tier === 'medium' ? 50 : 80;
-            this.ctx.fillStyle = 'red';
-            this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50, 5);
-            this.ctx.fillStyle = 'green';
-            this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50 * (enemy.health / maxHealth), 5);
-
-            // Draw tier indicator
-            this.ctx.fillStyle = 'white';
-            this.ctx.font = '12px Arial';
-            this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 15, enemy.y + 35);
-        });
-
-        // Draw obstacles
-        this.obstacles.forEach(obstacle => {
-            if (obstacle.type === 'coral') {
-                this.ctx.save();
-                this.ctx.translate(obstacle.x, obstacle.y);
-                
-                if (obstacle.isEnemy) {
-                    // Draw enemy coral with a reddish tint
-                    this.ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                    this.ctx.fillRect(0, 0, obstacle.width, obstacle.height);
+            this.players.forEach((player, id) => {
+                if (id === this.socket.id) {
+                    this.updatePlayerPosition(player);
                 }
+
+                this.ctx.save();
+                this.ctx.translate(player.x, player.y);
+                this.ctx.rotate(player.angle);
                 
-                this.ctx.drawImage(this.coralSprite, 0, 0, obstacle.width, obstacle.height);
+                // Draw the sprite
+                this.ctx.drawImage(this.playerSprite, -this.playerSprite.width / 2, -this.playerSprite.height / 2);
                 
-                if (obstacle.isEnemy && obstacle.health !== undefined) {
-                    // Draw health bar for enemy coral
-                    this.ctx.fillStyle = 'red';
-                    this.ctx.fillRect(0, -10, obstacle.width, 5);
-                    this.ctx.fillStyle = 'green';
-                    this.ctx.fillRect(0, -10, obstacle.width * (obstacle.health / this.ENEMY_CORAL_MAX_HEALTH), 5);
+                this.ctx.restore();
+
+                // Draw score
+                this.ctx.fillStyle = 'black';
+                this.ctx.font = '16px Arial';
+                this.ctx.fillText(`Score: ${player.score}`, player.x - 30, player.y - 30);
+
+                // Draw health bar
+                this.ctx.fillStyle = 'red';
+                this.ctx.fillRect(player.x - 25, player.y - 40, 50, 5);
+                this.ctx.fillStyle = 'green';
+                this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / this.PLAYER_MAX_HEALTH), 5);
+            });
+
+            // Draw enemies
+            this.enemies.forEach(enemy => {
+                this.ctx.save();
+                this.ctx.translate(enemy.x, enemy.y);
+                this.ctx.rotate(enemy.angle);
+                
+                // Draw enemy with color based on tier
+                this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, 20, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                if (enemy.type === 'octopus') {
+                    this.ctx.drawImage(this.octopusSprite, -20, -20, 40, 40);
+                } else {
+                    this.ctx.drawImage(this.fishSprite, -20, -20, 40, 40);
                 }
                 
                 this.ctx.restore();
-            }
-        });
 
-        // Draw items
-        this.items.forEach(item => {
-            const sprite = this.itemSprites[item.type];
-            this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
-        });
+                // Draw health bar
+                const maxHealth = enemy.tier === 'easy' ? 30 : enemy.tier === 'medium' ? 50 : 80;
+                this.ctx.fillStyle = 'red';
+                this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50, 5);
+                this.ctx.fillStyle = 'green';
+                this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50 * (enemy.health / maxHealth), 5);
 
-        // Draw player inventory
-        const socketId = this.socket.id;
-        if (socketId) {
-            const player = this.players.get(socketId);
-            if (player) {
-                player.inventory.forEach((item, index) => {
-                    const sprite = this.itemSprites[item.type];
-                    this.ctx.drawImage(sprite, 10 + index * 40, 10, 30, 30);
-                });
+                // Draw tier indicator
+                this.ctx.fillStyle = 'white';
+                this.ctx.font = '12px Arial';
+                this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 15, enemy.y + 35);
+            });
+
+            // Draw obstacles
+            this.obstacles.forEach(obstacle => {
+                if (obstacle.type === 'coral') {
+                    this.ctx.save();
+                    this.ctx.translate(obstacle.x, obstacle.y);
+                    
+                    if (obstacle.isEnemy) {
+                        // Draw enemy coral with a reddish tint
+                        this.ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                        this.ctx.fillRect(0, 0, obstacle.width, obstacle.height);
+                    }
+                    
+                    this.ctx.drawImage(this.coralSprite, 0, 0, obstacle.width, obstacle.height);
+                    
+                    if (obstacle.isEnemy && obstacle.health !== undefined) {
+                        // Draw health bar for enemy coral
+                        this.ctx.fillStyle = 'red';
+                        this.ctx.fillRect(0, -10, obstacle.width, 5);
+                        this.ctx.fillStyle = 'green';
+                        this.ctx.fillRect(0, -10, obstacle.width * (obstacle.health / this.ENEMY_CORAL_MAX_HEALTH), 5);
+                    }
+                    
+                    this.ctx.restore();
+                }
+            });
+
+            // Draw items
+            this.items.forEach(item => {
+                const sprite = this.itemSprites[item.type];
+                this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
+            });
+
+            // Draw player inventory
+            const socketId = this.socket.id;
+            if (socketId) {
+                const player = this.players.get(socketId);
+                if (player) {
+                    player.inventory.forEach((item, index) => {
+                        const sprite = this.itemSprites[item.type];
+                        this.ctx.drawImage(sprite, 10 + index * 40, 10, 30, 30);
+                    });
+                }
             }
+
+            this.ctx.restore();
+        } else {
+            this.renderInventoryMenu();
         }
-
-        this.ctx.restore();
 
         requestAnimationFrame(() => this.gameLoop());
     }
