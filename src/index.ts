@@ -12,11 +12,21 @@ interface Player {
     image: HTMLImageElement;
     velocityX: number;
     velocityY: number;
+    health: number; // Add health property
 }
 
 interface Dot {
     x: number;
     y: number;
+}
+
+interface Enemy {
+    id: string;
+    type: 'octopus' | 'fish';
+    x: number;
+    y: number;
+    angle: number;
+    health: number; // Add health property
 }
 
 class Game {
@@ -36,6 +46,15 @@ class Game {
     private readonly WORLD_WIDTH = 2000;
     private readonly WORLD_HEIGHT = 2000;
     private keysPressed: Set<string> = new Set();
+    private enemies: Map<string, Enemy> = new Map();
+    private octopusSprite: HTMLImageElement;
+    private fishSprite: HTMLImageElement;
+    private readonly PLAYER_MAX_HEALTH = 100;
+    private readonly ENEMY_MAX_HEALTH = 50;
+    private readonly PLAYER_DAMAGE = 10;
+    private readonly ENEMY_DAMAGE = 5;
+    private readonly DAMAGE_COOLDOWN = 1000; // 1 second cooldown
+    private lastDamageTime: number = 0;
 
     constructor() {
         console.log('Game constructor called');
@@ -56,6 +75,10 @@ class Game {
         this.playerSprite.onerror = (e) => {
             console.error('Error loading player sprite:', e);
         };
+        this.octopusSprite = new Image();
+        this.octopusSprite.src = '/assets/octopus.png';
+        this.fishSprite = new Image();
+        this.fishSprite.src = '/assets/fish.png';
         this.setupSocketListeners();
         this.setupEventListeners();
         this.generateDots();
@@ -70,13 +93,13 @@ class Game {
             console.log('Received current players:', players);
             this.players.clear();
             Object.values(players).forEach(player => {
-                this.players.set(player.id, {...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0});
+                this.players.set(player.id, {...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0, health: this.PLAYER_MAX_HEALTH});
             });
         });
 
         this.socket.on('newPlayer', (player: Player) => {
             console.log('New player joined:', player);
-            this.players.set(player.id, {...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0});
+            this.players.set(player.id, {...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0, health: this.PLAYER_MAX_HEALTH});
         });
 
         this.socket.on('playerMoved', (player: Player) => {
@@ -85,7 +108,7 @@ class Game {
             if (existingPlayer) {
                 Object.assign(existingPlayer, player);
             } else {
-                this.players.set(player.id, {...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0});
+                this.players.set(player.id, {...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0, health: this.PLAYER_MAX_HEALTH});
             }
         });
 
@@ -101,6 +124,33 @@ class Game {
             }
             this.dots.splice(data.dotIndex, 1);
             this.generateDot();
+        });
+
+        this.socket.on('enemiesUpdate', (enemies: Enemy[]) => {
+            this.enemies.clear();
+            enemies.forEach(enemy => this.enemies.set(enemy.id, enemy));
+        });
+
+        this.socket.on('enemyMoved', (enemy: Enemy) => {
+            this.enemies.set(enemy.id, enemy);
+        });
+
+        this.socket.on('playerDamaged', (data: { playerId: string, health: number }) => {
+            const player = this.players.get(data.playerId);
+            if (player) {
+                player.health = data.health;
+            }
+        });
+
+        this.socket.on('enemyDamaged', (data: { enemyId: string, health: number }) => {
+            const enemy = this.enemies.get(data.enemyId);
+            if (enemy) {
+                enemy.health = data.health;
+            }
+        });
+
+        this.socket.on('enemyDestroyed', (enemyId: string) => {
+            this.enemies.delete(enemyId);
         });
     }
 
@@ -189,6 +239,7 @@ class Game {
         });
 
         this.checkDotCollision(player);
+        this.checkEnemyCollision(player);
         this.updateCamera(player);
     }
 
@@ -219,6 +270,23 @@ class Game {
                 this.generateDot();
             }
         }
+    }
+
+    private checkEnemyCollision(player: Player) {
+        const currentTime = Date.now();
+        if (currentTime - this.lastDamageTime < this.DAMAGE_COOLDOWN) {
+            return;
+        }
+
+        this.enemies.forEach((enemy, enemyId) => {
+            const dx = player.x - enemy.x;
+            const dy = player.y - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < 40) { // Assuming both player and enemy are 40x40 pixels
+                this.lastDamageTime = currentTime;
+                this.socket.emit('collision', { enemyId });
+            }
+        });
     }
 
     private gameLoop() {
@@ -259,6 +327,33 @@ class Game {
             this.ctx.fillStyle = 'black';
             this.ctx.font = '16px Arial';
             this.ctx.fillText(`Score: ${player.score}`, player.x - 30, player.y - 30);
+
+            // Draw health bar
+            this.ctx.fillStyle = 'red';
+            this.ctx.fillRect(player.x - 25, player.y - 40, 50, 5);
+            this.ctx.fillStyle = 'green';
+            this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / this.PLAYER_MAX_HEALTH), 5);
+        });
+
+        // Draw enemies
+        this.enemies.forEach(enemy => {
+            this.ctx.save();
+            this.ctx.translate(enemy.x, enemy.y);
+            this.ctx.rotate(enemy.angle);
+            
+            if (enemy.type === 'octopus') {
+                this.ctx.drawImage(this.octopusSprite, -20, -20, 40, 40);
+            } else {
+                this.ctx.drawImage(this.fishSprite, -20, -20, 40, 40);
+            }
+            
+            this.ctx.restore();
+
+            // Draw health bar
+            this.ctx.fillStyle = 'red';
+            this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50, 5);
+            this.ctx.fillStyle = 'green';
+            this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50 * (enemy.health / this.ENEMY_MAX_HEALTH), 5);
         });
 
         this.ctx.restore();
