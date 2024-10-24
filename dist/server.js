@@ -26,9 +26,14 @@ app.use(express_1.default.static(path_1.default.join(__dirname, '../dist')));
 const players = {};
 const dots = [];
 const enemies = [];
+const obstacles = [];
 const WORLD_WIDTH = 2000;
 const WORLD_HEIGHT = 2000;
 const ENEMY_COUNT = 10;
+const OBSTACLE_COUNT = 20;
+const ENEMY_CORAL_PROBABILITY = 0.3;
+const ENEMY_CORAL_HEALTH = 50;
+const ENEMY_CORAL_DAMAGE = 5;
 const PLAYER_MAX_HEALTH = 100;
 const ENEMY_MAX_HEALTH = 50;
 const PLAYER_DAMAGE = 10;
@@ -84,9 +89,26 @@ function moveEnemies() {
         }
     });
 }
+function createObstacle() {
+    const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        width: 50 + Math.random() * 50, // Random width between 50 and 100
+        height: 50 + Math.random() * 50, // Random height between 50 and 100
+        type: 'coral',
+        isEnemy: isEnemy,
+        health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
+    };
+}
 // Initialize enemies
 for (let i = 0; i < ENEMY_COUNT; i++) {
     enemies.push(createEnemy());
+}
+// Initialize obstacles
+for (let i = 0; i < OBSTACLE_COUNT; i++) {
+    obstacles.push(createObstacle());
 }
 io.on('connection', (socket) => {
     console.log('A user connected');
@@ -107,16 +129,55 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('newPlayer', players[socket.id]);
     // Send initial enemies state
     socket.emit('enemiesUpdate', enemies);
+    // Send initial obstacles state
+    socket.emit('obstaclesUpdate', obstacles);
     socket.on('playerMovement', (movementData) => {
         const player = players[socket.id];
         if (player) {
-            player.x = Math.max(0, Math.min(WORLD_WIDTH, movementData.x));
-            player.y = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y));
-            player.angle = movementData.angle;
-            player.velocityX = movementData.velocityX;
-            player.velocityY = movementData.velocityY;
-            console.log(`Player ${socket.id} moved to (${player.x}, ${player.y}) with velocity (${player.velocityX}, ${player.velocityY}) and angle ${player.angle}`);
-            socket.broadcast.emit('playerMoved', player);
+            const newX = Math.max(0, Math.min(WORLD_WIDTH, movementData.x));
+            const newY = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y));
+            // Check collision with obstacles
+            let collision = false;
+            for (const obstacle of obstacles) {
+                if (newX < obstacle.x + obstacle.width &&
+                    newX + 40 > obstacle.x && // Assuming player width is 40
+                    newY < obstacle.y + obstacle.height &&
+                    newY + 40 > obstacle.y // Assuming player height is 40
+                ) {
+                    collision = true;
+                    if (obstacle.isEnemy) {
+                        // Player collides with enemy coral
+                        player.health -= ENEMY_CORAL_DAMAGE;
+                        io.emit('playerDamaged', { playerId: player.id, health: player.health });
+                        // Damage the enemy coral
+                        if (obstacle.health) {
+                            obstacle.health -= PLAYER_DAMAGE;
+                            if (obstacle.health <= 0) {
+                                // Destroy the enemy coral
+                                const index = obstacles.findIndex(o => o.id === obstacle.id);
+                                if (index !== -1) {
+                                    obstacles.splice(index, 1);
+                                    io.emit('obstacleDestroyed', obstacle.id);
+                                    obstacles.push(createObstacle()); // Replace the destroyed obstacle
+                                }
+                            }
+                            else {
+                                io.emit('obstacleDamaged', { obstacleId: obstacle.id, health: obstacle.health });
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            if (!collision) {
+                player.x = newX;
+                player.y = newY;
+                player.angle = movementData.angle;
+                player.velocityX = movementData.velocityX;
+                player.velocityY = movementData.velocityY;
+                console.log(`Player ${socket.id} moved to (${player.x}, ${player.y}) with velocity (${player.velocityX}, ${player.velocityY}) and angle ${player.angle}`);
+                socket.broadcast.emit('playerMoved', player);
+            }
         }
     });
     socket.on('collectDot', (dotIndex) => {

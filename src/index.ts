@@ -32,6 +32,17 @@ interface Enemy {
     damage: number;
 }
 
+interface Obstacle {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: 'coral';
+  isEnemy: boolean;
+  health?: number;
+}
+
 class Game {
     private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
@@ -63,6 +74,9 @@ class Game {
         medium: 'orange',
         hard: 'red'
     };
+    private obstacles: Obstacle[] = [];
+    private coralSprite: HTMLImageElement;
+    private readonly ENEMY_CORAL_MAX_HEALTH = 50;
 
     constructor() {
         console.log('Game constructor called');
@@ -87,6 +101,8 @@ class Game {
         this.octopusSprite.src = '/assets/octopus.png';
         this.fishSprite = new Image();
         this.fishSprite.src = '/assets/fish.png';
+        this.coralSprite = new Image();
+        this.coralSprite.src = '/assets/coral.png';
         this.setupSocketListeners();
         this.setupEventListeners();
         this.generateDots();
@@ -160,6 +176,24 @@ class Game {
         this.socket.on('enemyDestroyed', (enemyId: string) => {
             this.enemies.delete(enemyId);
         });
+
+        this.socket.on('obstaclesUpdate', (obstacles: Obstacle[]) => {
+            this.obstacles = obstacles;
+        });
+
+        this.socket.on('obstacleDamaged', (data: { obstacleId: string, health: number }) => {
+            const obstacle = this.obstacles.find(o => o.id === data.obstacleId);
+            if (obstacle && obstacle.isEnemy) {
+                obstacle.health = data.health;
+            }
+        });
+
+        this.socket.on('obstacleDestroyed', (obstacleId: string) => {
+            const index = this.obstacles.findIndex(o => o.id === obstacleId);
+            if (index !== -1) {
+                this.obstacles.splice(index, 1);
+            }
+        });
     }
 
     private setupEventListeners() {
@@ -218,9 +252,33 @@ class Game {
     }
 
     private updatePlayerPosition(player: Player) {
-        // Apply velocity
-        player.x += player.velocityX;
-        player.y += player.velocityY;
+        // Calculate new position
+        const newX = player.x + player.velocityX;
+        const newY = player.y + player.velocityY;
+
+        // Check collision with obstacles
+        let collision = false;
+        for (const obstacle of this.obstacles) {
+            if (
+                newX < obstacle.x + obstacle.width &&
+                newX + 40 > obstacle.x && // Assuming player width is 40
+                newY < obstacle.y + obstacle.height &&
+                newY + 40 > obstacle.y // Assuming player height is 40
+            ) {
+                collision = true;
+                break;
+            }
+        }
+
+        if (!collision) {
+            // Update position if no collision
+            player.x = newX;
+            player.y = newY;
+        } else {
+            // Stop movement if collision occurs
+            player.velocityX = 0;
+            player.velocityY = 0;
+        }
 
         // Update player angle based on velocity
         if (player.velocityX !== 0 || player.velocityY !== 0) {
@@ -374,6 +432,32 @@ class Game {
             this.ctx.fillStyle = 'white';
             this.ctx.font = '12px Arial';
             this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 15, enemy.y + 35);
+        });
+
+        // Draw obstacles
+        this.obstacles.forEach(obstacle => {
+            if (obstacle.type === 'coral') {
+                this.ctx.save();
+                this.ctx.translate(obstacle.x, obstacle.y);
+                
+                if (obstacle.isEnemy) {
+                    // Draw enemy coral with a reddish tint
+                    this.ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                    this.ctx.fillRect(0, 0, obstacle.width, obstacle.height);
+                }
+                
+                this.ctx.drawImage(this.coralSprite, 0, 0, obstacle.width, obstacle.height);
+                
+                if (obstacle.isEnemy && obstacle.health !== undefined) {
+                    // Draw health bar for enemy coral
+                    this.ctx.fillStyle = 'red';
+                    this.ctx.fillRect(0, -10, obstacle.width, 5);
+                    this.ctx.fillStyle = 'green';
+                    this.ctx.fillRect(0, -10, obstacle.width * (obstacle.health / this.ENEMY_CORAL_MAX_HEALTH), 5);
+                }
+                
+                this.ctx.restore();
+            }
         });
 
         this.ctx.restore();
