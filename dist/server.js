@@ -24,14 +24,20 @@ const PORT = process.env.PORT || 3000;
 // Serve static files from the dist directory
 app.use(express_1.default.static(path_1.default.join(__dirname, '../dist')));
 const players = {};
+const dots = [];
+const WORLD_WIDTH = 2000;
+const WORLD_HEIGHT = 2000;
 io.on('connection', (socket) => {
     console.log('A user connected');
     // Initialize new player
     players[socket.id] = {
         id: socket.id,
-        x: Math.random() * 800,
-        y: Math.random() * 600,
-        angle: 0
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        angle: 0,
+        score: 0,
+        velocityX: 0,
+        velocityY: 0
     };
     // Send current players to the new player
     socket.emit('currentPlayers', players);
@@ -40,11 +46,25 @@ io.on('connection', (socket) => {
     socket.on('playerMovement', (movementData) => {
         const player = players[socket.id];
         if (player) {
-            player.x = movementData.x;
-            player.y = movementData.y;
+            player.x = Math.max(0, Math.min(WORLD_WIDTH, movementData.x));
+            player.y = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y));
             player.angle = movementData.angle;
-            console.log(`Player ${socket.id} moved to (${player.x}, ${player.y})`);
+            player.velocityX = movementData.velocityX;
+            player.velocityY = movementData.velocityY;
+            console.log(`Player ${socket.id} moved to (${player.x}, ${player.y}) with velocity (${player.velocityX}, ${player.velocityY}) and angle ${player.angle}`);
             socket.broadcast.emit('playerMoved', player);
+        }
+    });
+    socket.on('collectDot', (dotIndex) => {
+        if (dotIndex >= 0 && dotIndex < dots.length) {
+            dots.splice(dotIndex, 1);
+            players[socket.id].score++;
+            io.emit('dotCollected', { playerId: socket.id, dotIndex });
+            // Generate a new dot
+            dots.push({
+                x: Math.random() * 800,
+                y: Math.random() * 600
+            });
         }
     });
     socket.on('disconnect', () => {
