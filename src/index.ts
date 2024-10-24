@@ -13,6 +13,7 @@ interface Player {
     velocityX: number;
     velocityY: number;
     health: number; // Add health property
+    inventory: Item[];
 }
 
 interface Dot {
@@ -41,6 +42,13 @@ interface Obstacle {
   type: 'coral';
   isEnemy: boolean;
   health?: number;
+}
+
+interface Item {
+    id: string;
+    type: 'health_potion' | 'speed_boost' | 'shield';
+    x: number;
+    y: number;
 }
 
 class Game {
@@ -77,6 +85,8 @@ class Game {
     private obstacles: Obstacle[] = [];
     private coralSprite: HTMLImageElement;
     private readonly ENEMY_CORAL_MAX_HEALTH = 50;
+    private items: Item[] = [];
+    private itemSprites: Record<string, HTMLImageElement> = {};
 
     constructor() {
         console.log('Game constructor called');
@@ -106,6 +116,7 @@ class Game {
         this.setupSocketListeners();
         this.setupEventListeners();
         this.generateDots();
+        this.setupItemSprites();
     }
 
     private setupSocketListeners() {
@@ -194,12 +205,40 @@ class Game {
                 this.obstacles.splice(index, 1);
             }
         });
+
+        this.socket.on('itemsUpdate', (items: Item[]) => {
+            this.items = items;
+        });
+
+        this.socket.on('itemCollected', (data: { playerId: string, itemId: string }) => {
+            this.items = this.items.filter(item => item.id !== data.itemId);
+        });
+
+        this.socket.on('inventoryUpdate', (inventory: Item[]) => {
+            const socketId = this.socket.id;
+            if (socketId) {
+                const player = this.players.get(socketId);
+                if (player) {
+                    player.inventory = inventory;
+                }
+            }
+        });
     }
 
     private setupEventListeners() {
         document.addEventListener('keydown', (event) => {
             this.keysPressed.add(event.key);
             this.updatePlayerVelocity();
+            if (event.key >= '1' && event.key <= '5') {
+                const index = parseInt(event.key) - 1;
+                const socketId = this.socket.id;
+                if (socketId) {
+                    const player = this.players.get(socketId);
+                    if (player && player.inventory[index]) {
+                        this.socket.emit('useItem', player.inventory[index].id);
+                    }
+                }
+            }
         });
 
         document.addEventListener('keyup', (event) => {
@@ -307,6 +346,7 @@ class Game {
         this.checkDotCollision(player);
         this.checkEnemyCollision(player);
         this.updateCamera(player);
+        this.checkItemCollision(player);
     }
 
     private generateDots() {
@@ -351,6 +391,17 @@ class Game {
             if (distance < 40) { // Assuming both player and enemy are 40x40 pixels
                 this.lastDamageTime = currentTime;
                 this.socket.emit('collision', { enemyId });
+            }
+        });
+    }
+
+    private checkItemCollision(player: Player) {
+        this.items.forEach(item => {
+            const dx = player.x - item.x;
+            const dy = player.y - item.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < 40) { // Assuming player radius is 20
+                this.socket.emit('collectItem', item.id);
             }
         });
     }
@@ -460,9 +511,36 @@ class Game {
             }
         });
 
+        // Draw items
+        this.items.forEach(item => {
+            const sprite = this.itemSprites[item.type];
+            this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
+        });
+
+        // Draw player inventory
+        const socketId = this.socket.id;
+        if (socketId) {
+            const player = this.players.get(socketId);
+            if (player) {
+                player.inventory.forEach((item, index) => {
+                    const sprite = this.itemSprites[item.type];
+                    this.ctx.drawImage(sprite, 10 + index * 40, 10, 30, 30);
+                });
+            }
+        }
+
         this.ctx.restore();
 
         requestAnimationFrame(() => this.gameLoop());
+    }
+
+    private setupItemSprites() {
+        const itemTypes = ['health_potion', 'speed_boost', 'shield'];
+        itemTypes.forEach(type => {
+            const sprite = new Image();
+            sprite.src = `/assets/${type}.png`;
+            this.itemSprites[type] = sprite;
+        });
     }
 }
 

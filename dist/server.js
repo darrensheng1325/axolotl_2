@@ -27,6 +27,7 @@ const players = {};
 const dots = [];
 const enemies = [];
 const obstacles = [];
+const items = [];
 const WORLD_WIDTH = 2000;
 const WORLD_HEIGHT = 2000;
 const ENEMY_COUNT = 10;
@@ -43,6 +44,8 @@ const ENEMY_TIERS = {
     medium: { health: 50, speed: 1.5, damage: 10, probability: 0.3 },
     hard: { health: 80, speed: 2, damage: 15, probability: 0.2 }
 };
+const ITEM_COUNT = 10;
+const MAX_INVENTORY_SIZE = 5;
 function createEnemy() {
     const tierRoll = Math.random();
     let tier;
@@ -102,6 +105,14 @@ function createObstacle() {
         health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
     };
 }
+function createItem() {
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT
+    };
+}
 // Initialize enemies
 for (let i = 0; i < ENEMY_COUNT; i++) {
     enemies.push(createEnemy());
@@ -109,6 +120,10 @@ for (let i = 0; i < ENEMY_COUNT; i++) {
 // Initialize obstacles
 for (let i = 0; i < OBSTACLE_COUNT; i++) {
     obstacles.push(createObstacle());
+}
+// Initialize items
+for (let i = 0; i < ITEM_COUNT; i++) {
+    items.push(createItem());
 }
 io.on('connection', (socket) => {
     console.log('A user connected');
@@ -121,7 +136,8 @@ io.on('connection', (socket) => {
         score: 0,
         velocityX: 0,
         velocityY: 0,
-        health: PLAYER_MAX_HEALTH
+        health: PLAYER_MAX_HEALTH,
+        inventory: []
     };
     // Send current players to the new player
     socket.emit('currentPlayers', players);
@@ -131,6 +147,8 @@ io.on('connection', (socket) => {
     socket.emit('enemiesUpdate', enemies);
     // Send initial obstacles state
     socket.emit('obstaclesUpdate', obstacles);
+    // Send current items to the new player
+    socket.emit('itemsUpdate', items);
     socket.on('playerMovement', (movementData) => {
         const player = players[socket.id];
         if (player) {
@@ -217,6 +235,40 @@ io.on('connection', (socket) => {
                 player.y = Math.random() * WORLD_HEIGHT;
                 io.emit('playerMoved', player);
             }
+        }
+    });
+    socket.on('collectItem', (itemId) => {
+        const player = players[socket.id];
+        const itemIndex = items.findIndex(item => item.id === itemId);
+        if (itemIndex !== -1 && player.inventory.length < MAX_INVENTORY_SIZE) {
+            const item = items[itemIndex];
+            player.inventory.push(item);
+            items.splice(itemIndex, 1);
+            socket.emit('inventoryUpdate', player.inventory);
+            io.emit('itemCollected', { playerId: socket.id, itemId });
+            items.push(createItem()); // Replace the collected item
+            io.emit('itemsUpdate', items);
+        }
+    });
+    socket.on('useItem', (itemId) => {
+        const player = players[socket.id];
+        const itemIndex = player.inventory.findIndex(item => item.id === itemId);
+        if (itemIndex !== -1) {
+            const item = player.inventory[itemIndex];
+            player.inventory.splice(itemIndex, 1);
+            switch (item.type) {
+                case 'health_potion':
+                    player.health = Math.min(player.health + 50, PLAYER_MAX_HEALTH);
+                    break;
+                case 'speed_boost':
+                    // Implement speed boost logic
+                    break;
+                case 'shield':
+                    // Implement shield logic
+                    break;
+            }
+            socket.emit('inventoryUpdate', player.inventory);
+            io.emit('playerUpdated', player);
         }
     });
     socket.on('disconnect', () => {
