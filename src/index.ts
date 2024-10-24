@@ -24,7 +24,7 @@ interface Dot {
 interface Enemy {
     id: string;
     type: 'octopus' | 'fish';
-    tier: 'easy' | 'medium' | 'hard';
+    tier: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
     x: number;
     y: number;
     angle: number;
@@ -72,15 +72,25 @@ class Game {
     private octopusSprite: HTMLImageElement;
     private fishSprite: HTMLImageElement;
     private readonly PLAYER_MAX_HEALTH = 100;
-    private readonly ENEMY_MAX_HEALTH = 50;
+    private readonly ENEMY_MAX_HEALTH: Record<Enemy['tier'], number> = {
+        common: 20,
+        uncommon: 40,
+        rare: 60,
+        epic: 80,
+        legendary: 100,
+        mythic: 150
+    };
     private readonly PLAYER_DAMAGE = 10;
     private readonly ENEMY_DAMAGE = 5;
     private readonly DAMAGE_COOLDOWN = 1000; // 1 second cooldown
     private lastDamageTime: number = 0;
     private readonly ENEMY_COLORS = {
-        easy: 'green',
-        medium: 'orange',
-        hard: 'red'
+        common: '#808080',
+        uncommon: '#008000',
+        rare: '#0000FF',
+        epic: '#800080',
+        legendary: '#FFA500',
+        mythic: '#FF0000'
     };
     private obstacles: Obstacle[] = [];
     private coralSprite: HTMLImageElement;
@@ -535,7 +545,7 @@ class Game {
                 this.ctx.restore();
 
                 // Draw health bar
-                const maxHealth = enemy.tier === 'easy' ? 30 : enemy.tier === 'medium' ? 50 : 80;
+                const maxHealth = this.ENEMY_MAX_HEALTH[enemy.tier];
                 this.ctx.fillStyle = 'red';
                 this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50, 5);
                 this.ctx.fillStyle = 'green';
@@ -544,7 +554,7 @@ class Game {
                 // Draw tier indicator
                 this.ctx.fillStyle = 'white';
                 this.ctx.font = '12px Arial';
-                this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 15, enemy.y + 35);
+                this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 25, enemy.y + 35);
             });
 
             // Draw obstacles

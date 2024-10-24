@@ -40,23 +40,25 @@ const ENEMY_MAX_HEALTH = 50;
 const PLAYER_DAMAGE = 10;
 const ENEMY_DAMAGE = 5;
 const ENEMY_TIERS = {
-    easy: { health: 30, speed: 1, damage: 5, probability: 0.5 },
-    medium: { health: 50, speed: 1.5, damage: 10, probability: 0.3 },
-    hard: { health: 80, speed: 2, damage: 15, probability: 0.2 }
+    common: { health: 20, speed: 0.5, damage: 5, probability: 0.4, color: '#808080' },
+    uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3, color: '#008000' },
+    rare: { health: 60, speed: 1, damage: 15, probability: 0.15, color: '#0000FF' },
+    epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1, color: '#800080' },
+    legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04, color: '#FFA500' },
+    mythic: { health: 150, speed: 2, damage: 30, probability: 0.01, color: '#FF0000' }
 };
 const ITEM_COUNT = 10;
 const MAX_INVENTORY_SIZE = 5;
 function createEnemy() {
     const tierRoll = Math.random();
-    let tier;
-    if (tierRoll < ENEMY_TIERS.easy.probability) {
-        tier = 'easy';
-    }
-    else if (tierRoll < ENEMY_TIERS.easy.probability + ENEMY_TIERS.medium.probability) {
-        tier = 'medium';
-    }
-    else {
-        tier = 'hard';
+    let tier = 'common'; // Initialize with a default value
+    let cumulativeProbability = 0;
+    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
+        cumulativeProbability += data.probability;
+        if (tierRoll < cumulativeProbability) {
+            tier = t;
+            break;
+        }
     }
     const tierData = ENEMY_TIERS[tier];
     return {
