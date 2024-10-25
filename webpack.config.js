@@ -2,6 +2,7 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const fs = require('fs');
+const webpack = require('webpack');
 
 module.exports = {
   entry: './src/index.ts',
@@ -12,10 +13,33 @@ module.exports = {
         use: 'ts-loader',
         exclude: /node_modules/,
       },
+      {
+        test: /\.worker\.(c|m)?ts$/i,
+        use: [
+          {
+            loader: 'worker-loader',
+            options: {
+              inline: 'no-fallback',
+            },
+          },
+          'ts-loader',
+        ],
+      },
     ],
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js'],
+    fallback: {
+      "crypto": require.resolve("crypto-browserify"),
+      "path": require.resolve("path-browserify"),
+      "http": require.resolve("stream-http"),
+      "querystring": require.resolve("querystring-es3"),
+      "url": require.resolve("url/"),
+      "timers": require.resolve("timers-browserify"),
+      "zlib": require.resolve("browserify-zlib"),
+      "stream": require.resolve("stream-browserify"),
+      "fs": false
+    }
   },
   output: {
     filename: 'bundle.js',
@@ -29,6 +53,9 @@ module.exports = {
       patterns: [
         { from: "assets", to: "assets" }
       ],
+    }),
+    new webpack.ProvidePlugin({
+      process: 'process/browser',
     }),
   ],
   devServer: {

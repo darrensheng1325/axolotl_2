@@ -51,10 +51,33 @@ interface Item {
     y: number;
 }
 
+let currentGame: Game | null = null;
+
+window.onload = () => {
+    const singlePlayerButton = document.getElementById('singlePlayerButton');
+    const multiPlayerButton = document.getElementById('multiPlayerButton');
+
+    singlePlayerButton?.addEventListener('click', () => {
+        if (currentGame) {
+            // Cleanup previous game
+            currentGame.cleanup();
+        }
+        currentGame = new Game(true);
+    });
+
+    multiPlayerButton?.addEventListener('click', () => {
+        if (currentGame) {
+            // Cleanup previous game
+            currentGame.cleanup();
+        }
+        currentGame = new Game(false);
+    });
+};
+
 class Game {
     private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
-    private socket: Socket;
+    private socket!: Socket;  // Using the definite assignment assertion
     private players: Map<string, Player> = new Map();
     private playerSprite: HTMLImageElement;
     private dots: Dot[] = [];
@@ -98,17 +121,19 @@ class Game {
     private items: Item[] = [];
     private itemSprites: Record<string, HTMLImageElement> = {};
     private isInventoryOpen: boolean = false;
+    private isSinglePlayer: boolean = false;
+    private worker: Worker | null = null;
+    private gameLoopId: number | null = null;
+    private socketHandlers: Map<string, Function> = new Map();
 
-    constructor() {
+    constructor(isSinglePlayer: boolean = false) {
         console.log('Game constructor called');
         this.canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
         this.ctx = this.canvas.getContext('2d')!;
         console.log('Canvas dimensions:', this.canvas.width, 'x', this.canvas.height);
-        this.socket = io('https://localhost:3000', { 
-            secure: true,
-            rejectUnauthorized: false, // Only use this in development
-            withCredentials: true
-        });
+        this.isSinglePlayer = isSinglePlayer;
+
+        // Initialize sprites and other resources
         this.playerSprite = new Image();
         this.playerSprite.src = '/assets/player.png';
         this.playerSprite.onload = () => {
@@ -124,10 +149,79 @@ class Game {
         this.fishSprite.src = '/assets/fish.png';
         this.coralSprite = new Image();
         this.coralSprite.src = '/assets/coral.png';
-        this.setupSocketListeners();
+
         this.setupEventListeners();
-        this.generateDots();
         this.setupItemSprites();
+
+        // Initialize game mode after resource loading
+        if (this.isSinglePlayer) {
+            this.initSinglePlayerMode();
+        } else {
+            this.initMultiPlayerMode();
+        }
+    }
+
+    private initSinglePlayerMode() {
+        console.log('Initializing single player mode');
+        try {
+            this.worker = new Worker(new URL('./singlePlayerWorker.ts', import.meta.url));
+            
+            // Create a mock socket for single player
+            const mockSocket = {
+                id: 'player1',
+                emit: (event: string, data: any) => {
+                    console.log('Emitting event:', event, data);
+                    this.worker?.postMessage({
+                        type: 'socketEvent',
+                        event,
+                        data
+                    });
+                },
+                on: (event: string, handler: Function) => {
+                    console.log('Registering handler for event:', event);
+                    this.socketHandlers.set(event, handler);
+                },
+                disconnect: () => {
+                    this.worker?.terminate();
+                }
+            };
+
+            // Use mock socket instead of real socket
+            this.socket = mockSocket as any;
+
+            // Set up socket event handlers first
+            this.setupSocketListeners();
+
+            // Handle messages from worker
+            this.worker.onmessage = (event) => {
+                const { type, event: socketEvent, data } = event.data;
+                console.log('Received message from worker:', type, socketEvent, data);
+                
+                if (type === 'socketEvent') {
+                    // Call the appropriate socket event handler
+                    const handler = this.socketHandlers.get(socketEvent);
+                    if (handler) {
+                        console.log('Calling handler for event:', socketEvent);
+                        handler(data);
+                    }
+                }
+            };
+
+            // Initialize the game
+            console.log('Sending init message to worker');
+            this.worker.postMessage({ type: 'init' });
+        } catch (error) {
+            console.error('Error initializing worker:', error);
+        }
+    }
+
+    private initMultiPlayerMode() {
+        this.socket = io('https://localhost:3000', { 
+            secure: true,
+            rejectUnauthorized: false,
+            withCredentials: true
+        });
+        this.setupSocketListeners();
     }
 
     private setupSocketListeners() {
@@ -253,6 +347,42 @@ class Game {
 
             this.keysPressed.add(event.key);
             this.updatePlayerVelocity();
+
+            if (this.isSinglePlayer) {
+                const player = this.players.get('player1');
+                if (player) {
+                    // Update player position directly
+                    player.x += player.velocityX;
+                    player.y += player.velocityY;
+                    
+                    // Send updated position to worker
+                    this.worker?.postMessage({
+                        type: 'socketEvent',
+                        event: 'playerMovement',
+                        data: {
+                            x: player.x,
+                            y: player.y,
+                            angle: player.angle,
+                            velocityX: player.velocityX,
+                            velocityY: player.velocityY
+                        }
+                    });
+                }
+            } else {
+                const socketId = this.socket.id;
+                if (socketId) {
+                    const player = this.players.get(socketId);
+                    if (player) {
+                        this.socket.emit('playerMovement', { 
+                            x: player.x, 
+                            y: player.y, 
+                            angle: player.angle, 
+                            velocityX: player.velocityX, 
+                            velocityY: player.velocityY 
+                        });
+                    }
+                }
+            }
         });
 
         document.addEventListener('keyup', (event) => {
@@ -262,35 +392,38 @@ class Game {
     }
 
     private updatePlayerVelocity() {
-        const socketId = this.socket.id;
-        if (socketId) {
-            const player = this.players.get(socketId);
-            if (player) {
-                let dx = 0;
-                let dy = 0;
+        const player = this.isSinglePlayer ? 
+            this.players.get('player1') : 
+            this.players.get(this.socket?.id || '');
 
-                if (this.keysPressed.has('ArrowUp')) dy -= 1;
-                if (this.keysPressed.has('ArrowDown')) dy += 1;
-                if (this.keysPressed.has('ArrowLeft')) dx -= 1;
-                if (this.keysPressed.has('ArrowRight')) dx += 1;
+        if (player) {
+            let dx = 0;
+            let dy = 0;
 
-                // Normalize diagonal movement
-                if (dx !== 0 && dy !== 0) {
-                    const length = Math.sqrt(dx * dx + dy * dy);
-                    dx /= length;
-                    dy /= length;
-                }
+            if (this.keysPressed.has('ArrowUp')) dy -= 1;
+            if (this.keysPressed.has('ArrowDown')) dy += 1;
+            if (this.keysPressed.has('ArrowLeft')) dx -= 1;
+            if (this.keysPressed.has('ArrowRight')) dx += 1;
 
-                player.velocityX = dx * this.PLAYER_ACCELERATION;
-                player.velocityY = dy * this.PLAYER_ACCELERATION;
+            // Normalize diagonal movement
+            if (dx !== 0 && dy !== 0) {
+                const length = Math.sqrt(dx * dx + dy * dy);
+                dx /= length;
+                dy /= length;
+            }
 
-                // Limit speed
-                const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
-                if (speed > this.MAX_SPEED) {
-                    const ratio = this.MAX_SPEED / speed;
-                    player.velocityX *= ratio;
-                    player.velocityY *= ratio;
-                }
+            // Apply acceleration
+            const acceleration = this.isSinglePlayer ? this.PLAYER_ACCELERATION * 2 : this.PLAYER_ACCELERATION;
+            player.velocityX = dx * acceleration;
+            player.velocityY = dy * acceleration;
+
+            // Limit speed with different max speeds for single and multiplayer
+            const maxSpeed = this.isSinglePlayer ? this.MAX_SPEED * 2 : this.MAX_SPEED;
+            const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
+            if (speed > maxSpeed) {
+                const ratio = maxSpeed / speed;
+                player.velocityX *= ratio;
+                player.velocityY *= ratio;
             }
         }
     }
@@ -477,12 +610,39 @@ class Game {
         this.ctx.fillText('Press I to close inventory', 300, 510);
     }
 
+    private handlePlayerMoved(playerData: Player) {
+        // Update player position in single-player mode
+        const player = this.players.get(playerData.id);
+        if (player) {
+            Object.assign(player, playerData);
+            // Update camera position for the local player
+            if (this.isSinglePlayer) {
+                this.updateCamera(player);
+            }
+        }
+    }
+
+    private handleEnemiesUpdate(enemiesData: Enemy[]) {
+        // Update enemies in single-player mode
+        this.enemies.clear();
+        enemiesData.forEach(enemy => this.enemies.set(enemy.id, enemy));
+    }
+
     private gameLoop() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.fillStyle = '#00FFFF';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         if (!this.isInventoryOpen) {
+            // Update camera position for both modes
+            const currentPlayer = this.isSinglePlayer ? 
+                this.players.get('player1') : 
+                this.players.get(this.socket?.id || '');
+
+            if (currentPlayer) {
+                this.updateCamera(currentPlayer);
+            }
+
             this.ctx.save();
             this.ctx.translate(-this.cameraX, -this.cameraY);
 
@@ -498,11 +658,8 @@ class Game {
                 this.ctx.fill();
             });
 
+            // Draw players
             this.players.forEach((player, id) => {
-                if (id === this.socket.id) {
-                    this.updatePlayerPosition(player);
-                }
-
                 this.ctx.save();
                 this.ctx.translate(player.x, player.y);
                 this.ctx.rotate(player.angle);
@@ -512,7 +669,7 @@ class Game {
                 
                 this.ctx.restore();
 
-                // Draw score
+                // Draw score and health
                 this.ctx.fillStyle = 'black';
                 this.ctx.font = '16px Arial';
                 this.ctx.fillText(`Score: ${player.score}`, player.x - 30, player.y - 30);
@@ -544,14 +701,12 @@ class Game {
                 
                 this.ctx.restore();
 
-                // Draw health bar
+                // Draw health bar and tier indicator
                 const maxHealth = this.ENEMY_MAX_HEALTH[enemy.tier];
                 this.ctx.fillStyle = 'red';
                 this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50, 5);
                 this.ctx.fillStyle = 'green';
                 this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50 * (enemy.health / maxHealth), 5);
-
-                // Draw tier indicator
                 this.ctx.fillStyle = 'white';
                 this.ctx.font = '12px Arial';
                 this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 25, enemy.y + 35);
@@ -606,7 +761,7 @@ class Game {
             this.renderInventoryMenu();
         }
 
-        requestAnimationFrame(() => this.gameLoop());
+        this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
     }
 
     private setupItemSprites() {
@@ -617,9 +772,32 @@ class Game {
             this.itemSprites[type] = sprite;
         });
     }
-}
 
-window.onload = () => {
-    console.log('Window loaded, creating game instance');
-    new Game();
-};
+    public cleanup() {
+        // Stop the game loop
+        if (this.gameLoopId) {
+            cancelAnimationFrame(this.gameLoopId);
+        }
+
+        // Terminate the web worker if it exists
+        if (this.worker) {
+            this.worker.terminate();
+            this.worker = null;
+        }
+
+        // Disconnect socket if it exists
+        if (this.socket) {
+            this.socket.disconnect();
+        }
+
+        // Clear all game data
+        this.players.clear();
+        this.enemies.clear();
+        this.dots = [];
+        this.obstacles = [];
+        this.items = [];
+
+        // Clear the canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+}
