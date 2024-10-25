@@ -133,9 +133,9 @@ class Game {
         console.log('Canvas dimensions:', this.canvas.width, 'x', this.canvas.height);
         this.isSinglePlayer = isSinglePlayer;
 
-        // Initialize sprites and other resources
+        // Initialize sprites and other resources with relative paths
         this.playerSprite = new Image();
-        this.playerSprite.src = '/assets/player.png';
+        this.playerSprite.src = './assets/player.png';
         this.playerSprite.onload = () => {
             console.log('Player sprite loaded successfully');
             this.gameLoop();
@@ -144,11 +144,11 @@ class Game {
             console.error('Error loading player sprite:', e);
         };
         this.octopusSprite = new Image();
-        this.octopusSprite.src = '/assets/octopus.png';
+        this.octopusSprite.src = './assets/octopus.png';
         this.fishSprite = new Image();
-        this.fishSprite.src = '/assets/fish.png';
+        this.fishSprite.src = './assets/fish.png';
         this.coralSprite = new Image();
-        this.coralSprite.src = '/assets/coral.png';
+        this.coralSprite.src = './assets/coral.png';
 
         this.setupEventListeners();
         this.setupItemSprites();
@@ -164,7 +164,15 @@ class Game {
     private initSinglePlayerMode() {
         console.log('Initializing single player mode');
         try {
-            this.worker = new Worker(new URL('./singlePlayerWorker.ts', import.meta.url));
+            // Create a blob URL for the worker
+            const workerCode = `
+                ${singlePlayerWorkerCode}
+            `;
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            const workerUrl = URL.createObjectURL(blob);
+            
+            // Create the worker using the blob URL
+            this.worker = new Worker(workerUrl);
             
             // Create a mock socket for single player
             const mockSocket = {
@@ -183,6 +191,7 @@ class Game {
                 },
                 disconnect: () => {
                     this.worker?.terminate();
+                    URL.revokeObjectURL(workerUrl); // Clean up the blob URL
                 }
             };
 
@@ -815,7 +824,7 @@ class Game {
         const itemTypes = ['health_potion', 'speed_boost', 'shield'];
         itemTypes.forEach(type => {
             const sprite = new Image();
-            sprite.src = `/assets/${type}.png`;
+            sprite.src = `./assets/${type}.png`;
             this.itemSprites[type] = sprite;
         });
     }
@@ -848,3 +857,196 @@ class Game {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 }
+
+// Add the worker code as a string
+const singlePlayerWorkerCode = `
+    // Worker code
+    const WORLD_WIDTH = 2000;
+    const WORLD_HEIGHT = 2000;
+    const ENEMY_COUNT = 10;
+    const OBSTACLE_COUNT = 20;
+    const ENEMY_CORAL_PROBABILITY = 0.3;
+    const ENEMY_CORAL_HEALTH = 50;
+    const ENEMY_CORAL_DAMAGE = 5;
+    const PLAYER_MAX_HEALTH = 100;
+    const PLAYER_DAMAGE = 10;
+    const ITEM_COUNT = 10;
+    const MAX_INVENTORY_SIZE = 5;
+
+    const ENEMY_TIERS = {
+        common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
+        uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3 },
+        rare: { health: 60, speed: 1, damage: 15, probability: 0.15 },
+        epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1 },
+        legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04 },
+        mythic: { health: 150, speed: 2, damage: 30, probability: 0.01 }
+    };
+
+    const players = {};
+    const enemies = [];
+    const obstacles = [];
+    const items = [];
+    const dots = [];
+
+    function createEnemy() {
+        const tierRoll = Math.random();
+        let tier = 'common';
+        let cumulativeProbability = 0;
+
+        for (const [t, data] of Object.entries(ENEMY_TIERS)) {
+            cumulativeProbability += data.probability;
+            if (tierRoll < cumulativeProbability) {
+                tier = t;
+                break;
+            }
+        }
+
+        const tierData = ENEMY_TIERS[tier];
+
+        return {
+            id: Math.random().toString(36).substr(2, 9),
+            type: Math.random() < 0.5 ? 'octopus' : 'fish',
+            tier,
+            x: Math.random() * WORLD_WIDTH,
+            y: Math.random() * WORLD_HEIGHT,
+            angle: Math.random() * Math.PI * 2,
+            health: tierData.health,
+            speed: tierData.speed,
+            damage: tierData.damage
+        };
+    }
+
+    function createObstacle() {
+        const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
+        return {
+            id: Math.random().toString(36).substr(2, 9),
+            x: Math.random() * WORLD_WIDTH,
+            y: Math.random() * WORLD_HEIGHT,
+            width: 50 + Math.random() * 50,
+            height: 50 + Math.random() * 50,
+            type: 'coral',
+            isEnemy,
+            health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
+        };
+    }
+
+    function createItem() {
+        return {
+            id: Math.random().toString(36).substr(2, 9),
+            type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
+            x: Math.random() * WORLD_WIDTH,
+            y: Math.random() * WORLD_HEIGHT
+        };
+    }
+
+    function moveEnemies() {
+        enemies.forEach(enemy => {
+            if (enemy.type === 'octopus') {
+                enemy.x += (Math.random() * 4 - 2) * enemy.speed;
+                enemy.y += (Math.random() * 4 - 2) * enemy.speed;
+            } else {
+                enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
+                enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
+            }
+
+            enemy.x = (enemy.x + WORLD_WIDTH) % WORLD_WIDTH;
+            enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
+
+            if (enemy.type === 'fish' && Math.random() < 0.02) {
+                enemy.angle = Math.random() * Math.PI * 2;
+            }
+        });
+    }
+
+    class MockSocket {
+        constructor() {
+            this.id = 'player1';
+            this.eventHandlers = new Map();
+        }
+
+        emit(event, data) {
+            self.postMessage({
+                type: 'socketEvent',
+                event,
+                data
+            });
+        }
+
+        broadcast = {
+            emit: () => {}
+        };
+    }
+
+    const socket = new MockSocket();
+
+    function initializeGame() {
+        players[socket.id] = {
+            id: socket.id,
+            x: WORLD_WIDTH / 2,
+            y: WORLD_HEIGHT / 2,
+            angle: 0,
+            score: 0,
+            velocityX: 0,
+            velocityY: 0,
+            health: PLAYER_MAX_HEALTH,
+            inventory: []
+        };
+
+        for (let i = 0; i < ENEMY_COUNT; i++) {
+            enemies.push(createEnemy());
+        }
+
+        for (let i = 0; i < OBSTACLE_COUNT; i++) {
+            obstacles.push(createObstacle());
+        }
+
+        for (let i = 0; i < ITEM_COUNT; i++) {
+            items.push(createItem());
+        }
+
+        for (let i = 0; i < 20; i++) {
+            dots.push({
+                x: Math.random() * WORLD_WIDTH,
+                y: Math.random() * WORLD_HEIGHT
+            });
+        }
+
+        socket.emit('currentPlayers', players);
+        socket.emit('enemiesUpdate', enemies);
+        socket.emit('obstaclesUpdate', obstacles);
+        socket.emit('itemsUpdate', items);
+        socket.emit('playerMoved', players[socket.id]);
+    }
+
+    self.onmessage = function(event) {
+        const { type, event: socketEvent, data } = event.data;
+        
+        switch (type) {
+            case 'init':
+                initializeGame();
+                break;
+            case 'socketEvent':
+                handleSocketEvent(socketEvent, data);
+                break;
+        }
+    };
+
+    function handleSocketEvent(event, data) {
+        switch (event) {
+            case 'playerMovement':
+                handlePlayerMovement(data);
+                break;
+            case 'collectItem':
+                handleCollectItem(data);
+                break;
+            case 'useItem':
+                handleUseItem(data);
+                break;
+        }
+    }
+
+    setInterval(() => {
+        moveEnemies();
+        socket.emit('enemiesUpdate', enemies);
+    }, 100);
+`;

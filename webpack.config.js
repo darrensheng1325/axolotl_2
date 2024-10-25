@@ -14,13 +14,10 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
-        test: /\.worker\.(c|m)?ts$/i,
+        test: /\.worker\.(ts|js)$/,
         use: [
           {
-            loader: 'worker-loader',
-            options: {
-              inline: 'no-fallback',
-            },
+            loader: 'raw-loader',
           },
           'ts-loader',
         ],
@@ -44,6 +41,7 @@ module.exports = {
   output: {
     filename: 'bundle.js',
     path: path.resolve(__dirname, 'dist'),
+    publicPath: './',
   },
   plugins: [
     new HtmlWebpackPlugin({
