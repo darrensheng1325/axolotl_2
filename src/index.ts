@@ -645,13 +645,49 @@ class Game {
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         if (!this.isInventoryOpen) {
-            // Update camera position for both modes
+            // Get current player
             const currentPlayer = this.isSinglePlayer ? 
                 this.players.get('player1') : 
                 this.players.get(this.socket?.id || '');
 
             if (currentPlayer) {
+                // Always update position based on velocity
+                const newX = currentPlayer.x + currentPlayer.velocityX;
+                const newY = currentPlayer.y + currentPlayer.velocityY;
+
+                // Check world bounds
+                currentPlayer.x = Math.max(0, Math.min(this.WORLD_WIDTH, newX));
+                currentPlayer.y = Math.max(0, Math.min(this.WORLD_HEIGHT, newY));
+
+                // Apply friction
+                currentPlayer.velocityX *= this.FRICTION;
+                currentPlayer.velocityY *= this.FRICTION;
+
+                // Update camera
                 this.updateCamera(currentPlayer);
+
+                // Send update to server/worker
+                if (this.isSinglePlayer) {
+                    this.worker?.postMessage({
+                        type: 'socketEvent',
+                        event: 'playerMovement',
+                        data: {
+                            x: currentPlayer.x,
+                            y: currentPlayer.y,
+                            angle: currentPlayer.angle,
+                            velocityX: currentPlayer.velocityX,
+                            velocityY: currentPlayer.velocityY
+                        }
+                    });
+                } else {
+                    this.socket.emit('playerMovement', {
+                        x: currentPlayer.x,
+                        y: currentPlayer.y,
+                        angle: currentPlayer.angle,
+                        velocityX: currentPlayer.velocityX,
+                        velocityY: currentPlayer.velocityY
+                    });
+                }
             }
 
             this.ctx.save();
