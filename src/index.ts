@@ -347,42 +347,6 @@ class Game {
 
             this.keysPressed.add(event.key);
             this.updatePlayerVelocity();
-
-            if (this.isSinglePlayer) {
-                const player = this.players.get('player1');
-                if (player) {
-                    // Update player position directly
-                    player.x += player.velocityX;
-                    player.y += player.velocityY;
-                    
-                    // Send updated position to worker
-                    this.worker?.postMessage({
-                        type: 'socketEvent',
-                        event: 'playerMovement',
-                        data: {
-                            x: player.x,
-                            y: player.y,
-                            angle: player.angle,
-                            velocityX: player.velocityX,
-                            velocityY: player.velocityY
-                        }
-                    });
-                }
-            } else {
-                const socketId = this.socket.id;
-                if (socketId) {
-                    const player = this.players.get(socketId);
-                    if (player) {
-                        this.socket.emit('playerMovement', { 
-                            x: player.x, 
-                            y: player.y, 
-                            angle: player.angle, 
-                            velocityX: player.velocityX, 
-                            velocityY: player.velocityY 
-                        });
-                    }
-                }
-            }
         });
 
         document.addEventListener('keyup', (event) => {
@@ -406,24 +370,71 @@ class Game {
             if (this.keysPressed.has('ArrowRight')) dx += 1;
 
             // Normalize diagonal movement
-            if (dx !== 0 && dy !== 0) {
-                const length = Math.sqrt(dx * dx + dy * dy);
-                dx /= length;
-                dy /= length;
+            if (dx !== 0 || dy !== 0) {
+                // Calculate angle based on movement direction
+                player.angle = Math.atan2(dy, dx);
+
+                // Normalize the direction vector
+                if (dx !== 0 && dy !== 0) {
+                    const length = Math.sqrt(dx * dx + dy * dy);
+                    dx /= length;
+                    dy /= length;
+                }
+
+                // Apply acceleration gradually
+                const acceleration = this.isSinglePlayer ? this.PLAYER_ACCELERATION * 2 : this.PLAYER_ACCELERATION;
+                player.velocityX += dx * acceleration;
+                player.velocityY += dy * acceleration;
+
+                // Limit speed
+                const maxSpeed = this.isSinglePlayer ? this.MAX_SPEED * 2 : this.MAX_SPEED;
+                const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
+                if (speed > maxSpeed) {
+                    const ratio = maxSpeed / speed;
+                    player.velocityX *= ratio;
+                    player.velocityY *= ratio;
+                }
+            } else {
+                // Apply friction when no keys are pressed
+                player.velocityX *= this.FRICTION;
+                player.velocityY *= this.FRICTION;
+
+                // Update angle based on velocity if moving
+                const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
+                if (speed > 0.1) {  // Only update angle if moving significantly
+                    player.angle = Math.atan2(player.velocityY, player.velocityX);
+                }
             }
 
-            // Apply acceleration
-            const acceleration = this.isSinglePlayer ? this.PLAYER_ACCELERATION * 2 : this.PLAYER_ACCELERATION;
-            player.velocityX = dx * acceleration;
-            player.velocityY = dy * acceleration;
+            // Update position
+            const newX = player.x + player.velocityX;
+            const newY = player.y + player.velocityY;
 
-            // Limit speed with different max speeds for single and multiplayer
-            const maxSpeed = this.isSinglePlayer ? this.MAX_SPEED * 2 : this.MAX_SPEED;
-            const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
-            if (speed > maxSpeed) {
-                const ratio = maxSpeed / speed;
-                player.velocityX *= ratio;
-                player.velocityY *= ratio;
+            // Check world bounds
+            player.x = Math.max(0, Math.min(this.WORLD_WIDTH, newX));
+            player.y = Math.max(0, Math.min(this.WORLD_HEIGHT, newY));
+
+            // Send update to server/worker
+            if (this.isSinglePlayer) {
+                this.worker?.postMessage({
+                    type: 'socketEvent',
+                    event: 'playerMovement',
+                    data: {
+                        x: player.x,
+                        y: player.y,
+                        angle: player.angle,
+                        velocityX: player.velocityX,
+                        velocityY: player.velocityY
+                    }
+                });
+            } else {
+                this.socket.emit('playerMovement', {
+                    x: player.x,
+                    y: player.y,
+                    angle: player.angle,
+                    velocityX: player.velocityX,
+                    velocityY: player.velocityY
+                });
             }
         }
     }
