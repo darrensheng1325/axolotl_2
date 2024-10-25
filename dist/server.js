@@ -49,6 +49,7 @@ const ENEMY_TIERS = {
 };
 const ITEM_COUNT = 10;
 const MAX_INVENTORY_SIZE = 5;
+const RESPAWN_INVULNERABILITY_TIME = 3000; // 3 seconds of invulnerability after respawn
 function createEnemy() {
     const tierRoll = Math.random();
     let tier = 'common'; // Initialize with a default value
@@ -127,6 +128,18 @@ for (let i = 0; i < OBSTACLE_COUNT; i++) {
 for (let i = 0; i < ITEM_COUNT; i++) {
     items.push(createItem());
 }
+function respawnPlayer(player) {
+    player.health = PLAYER_MAX_HEALTH;
+    player.x = Math.random() * WORLD_WIDTH;
+    player.y = Math.random() * WORLD_HEIGHT;
+    player.score = Math.max(0, player.score - 10); // Penalty for dying
+    player.inventory = []; // Clear inventory on death
+    player.isInvulnerable = true;
+    // Remove invulnerability after the specified time
+    setTimeout(() => {
+        player.isInvulnerable = false;
+    }, RESPAWN_INVULNERABILITY_TIME);
+}
 io.on('connection', (socket) => {
     console.log('A user connected');
     // Initialize new player
@@ -139,8 +152,15 @@ io.on('connection', (socket) => {
         velocityX: 0,
         velocityY: 0,
         health: PLAYER_MAX_HEALTH,
-        inventory: []
+        inventory: [],
+        isInvulnerable: true
     };
+    // Remove initial invulnerability after the specified time
+    setTimeout(() => {
+        if (players[socket.id]) {
+            players[socket.id].isInvulnerable = false;
+        }
+    }, RESPAWN_INVULNERABILITY_TIME);
     // Send current players to the new player
     socket.emit('currentPlayers', players);
     // Notify all other players about the new player
@@ -156,34 +176,41 @@ io.on('connection', (socket) => {
         if (player) {
             const newX = Math.max(0, Math.min(WORLD_WIDTH, movementData.x));
             const newY = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y));
-            // Check collision with obstacles
+            // Check collision with obstacles and enemies
             let collision = false;
+            // Check obstacles
             for (const obstacle of obstacles) {
                 if (newX < obstacle.x + obstacle.width &&
-                    newX + 40 > obstacle.x && // Assuming player width is 40
+                    newX + 40 > obstacle.x &&
                     newY < obstacle.y + obstacle.height &&
-                    newY + 40 > obstacle.y // Assuming player height is 40
-                ) {
+                    newY + 40 > obstacle.y) {
                     collision = true;
-                    if (obstacle.isEnemy) {
-                        // Player collides with enemy coral
+                    if (obstacle.isEnemy && !player.isInvulnerable) {
                         player.health -= ENEMY_CORAL_DAMAGE;
                         io.emit('playerDamaged', { playerId: player.id, health: player.health });
-                        // Damage the enemy coral
-                        if (obstacle.health) {
-                            obstacle.health -= PLAYER_DAMAGE;
-                            if (obstacle.health <= 0) {
-                                // Destroy the enemy coral
-                                const index = obstacles.findIndex(o => o.id === obstacle.id);
-                                if (index !== -1) {
-                                    obstacles.splice(index, 1);
-                                    io.emit('obstacleDestroyed', obstacle.id);
-                                    obstacles.push(createObstacle()); // Replace the destroyed obstacle
-                                }
-                            }
-                            else {
-                                io.emit('obstacleDamaged', { obstacleId: obstacle.id, health: obstacle.health });
-                            }
+                        if (player.health <= 0) {
+                            respawnPlayer(player);
+                            io.emit('playerDied', player.id);
+                            io.emit('playerRespawned', player);
+                        }
+                    }
+                    break;
+                }
+            }
+            // Check enemies
+            for (const enemy of enemies) {
+                if (newX < enemy.x + 40 && // Assuming enemy width is 40
+                    newX + 40 > enemy.x &&
+                    newY < enemy.y + 40 && // Assuming enemy height is 40
+                    newY + 40 > enemy.y) {
+                    collision = true;
+                    if (!player.isInvulnerable) {
+                        player.health -= enemy.damage;
+                        io.emit('playerDamaged', { playerId: player.id, health: player.health });
+                        if (player.health <= 0) {
+                            respawnPlayer(player);
+                            io.emit('playerDied', player.id);
+                            io.emit('playerRespawned', player);
                         }
                     }
                     break;
@@ -195,7 +222,6 @@ io.on('connection', (socket) => {
                 player.angle = movementData.angle;
                 player.velocityX = movementData.velocityX;
                 player.velocityY = movementData.velocityY;
-                console.log(`Player ${socket.id} moved to (${player.x}, ${player.y}) with velocity (${player.velocityX}, ${player.velocityY}) and angle ${player.angle}`);
                 socket.broadcast.emit('playerMoved', player);
             }
         }
@@ -210,33 +236,6 @@ io.on('connection', (socket) => {
                 x: Math.random() * 800,
                 y: Math.random() * 600
             });
-        }
-    });
-    socket.on('collision', (data) => {
-        const player = players[socket.id];
-        const enemy = enemies.find(e => e.id === data.enemyId);
-        if (player && enemy) {
-            // Player damages enemy
-            enemy.health -= PLAYER_DAMAGE;
-            io.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
-            if (enemy.health <= 0) {
-                const index = enemies.findIndex(e => e.id === enemy.id);
-                if (index !== -1) {
-                    enemies.splice(index, 1);
-                    io.emit('enemyDestroyed', enemy.id);
-                    enemies.push(createEnemy()); // Replace the destroyed enemy
-                }
-            }
-            // Enemy damages player
-            player.health -= enemy.damage;
-            io.emit('playerDamaged', { playerId: player.id, health: player.health });
-            if (player.health <= 0) {
-                // Player is defeated, respawn
-                player.health = PLAYER_MAX_HEALTH;
-                player.x = Math.random() * WORLD_WIDTH;
-                player.y = Math.random() * WORLD_HEIGHT;
-                io.emit('playerMoved', player);
-            }
         }
     });
     socket.on('collectItem', (itemId) => {

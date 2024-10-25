@@ -47,6 +47,7 @@ interface Dot {
     y: number;
 }
 
+// Add constants at the top
 const WORLD_WIDTH = 2000;
 const WORLD_HEIGHT = 2000;
 const ENEMY_COUNT = 10;
@@ -58,6 +59,9 @@ const PLAYER_MAX_HEALTH = 100;
 const PLAYER_DAMAGE = 10;
 const ITEM_COUNT = 10;
 const MAX_INVENTORY_SIZE = 5;
+const PLAYER_SIZE = 40;
+const COLLISION_RADIUS = PLAYER_SIZE / 2;
+const ENEMY_SIZE = 40;
 
 const ENEMY_TIERS = {
     common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
@@ -251,7 +255,6 @@ self.onmessage = (event) => {
             break;
 
         case 'socketEvent':
-            // Handle socket events like the server does
             switch (socketEvent) {
                 case 'playerMovement':
                     const player = players[socket.id];
@@ -259,26 +262,74 @@ self.onmessage = (event) => {
                         // Check collision with obstacles
                         let collision = false;
                         for (const obstacle of obstacles) {
+                            // Rectangle collision detection
                             if (
                                 data.x < obstacle.x + obstacle.width &&
-                                data.x + 40 > obstacle.x &&
+                                data.x + PLAYER_SIZE > obstacle.x &&
                                 data.y < obstacle.y + obstacle.height &&
-                                data.y + 40 > obstacle.y
+                                data.y + PLAYER_SIZE > obstacle.y
                             ) {
                                 collision = true;
+                                if (obstacle.isEnemy) {
+                                    player.health -= ENEMY_CORAL_DAMAGE;
+                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+                                    
+                                    if (obstacle.health) {
+                                        obstacle.health -= PLAYER_DAMAGE;
+                                        if (obstacle.health <= 0) {
+                                            const index = obstacles.findIndex(o => o.id === obstacle.id);
+                                            if (index !== -1) {
+                                                obstacles.splice(index, 1);
+                                                socket.emit('obstacleDestroyed', obstacle.id);
+                                                obstacles.push(createObstacle());
+                                            }
+                                        }
+                                    }
+                                }
                                 break;
                             }
                         }
 
+                        // Check collision with enemies
+                        enemies.forEach(enemy => {
+                            // Circle collision detection
+                            const dx = (data.x + PLAYER_SIZE/2) - (enemy.x + ENEMY_SIZE/2);
+                            const dy = (data.y + PLAYER_SIZE/2) - (enemy.y + ENEMY_SIZE/2);
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            
+                            if (distance < PLAYER_SIZE/2 + ENEMY_SIZE/2) {
+                                player.health -= enemy.damage;
+                                socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+
+                                enemy.health -= PLAYER_DAMAGE;
+                                if (enemy.health <= 0) {
+                                    const index = enemies.findIndex(e => e.id === enemy.id);
+                                    if (index !== -1) {
+                                        enemies.splice(index, 1);
+                                        socket.emit('enemyDestroyed', enemy.id);
+                                        enemies.push(createEnemy());
+                                    }
+                                } else {
+                                    socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+                                }
+
+                                if (player.health <= 0) {
+                                    player.health = PLAYER_MAX_HEALTH;
+                                    player.x = Math.random() * WORLD_WIDTH;
+                                    player.y = Math.random() * WORLD_HEIGHT;
+                                    socket.emit('playerMoved', player);
+                                }
+                            }
+                        });
+
                         if (!collision) {
                             // Update player position
-                            player.x = Math.max(0, Math.min(WORLD_WIDTH, data.x));
-                            player.y = Math.max(0, Math.min(WORLD_HEIGHT, data.y));
+                            player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, data.x));
+                            player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, data.y));
                             player.angle = data.angle;
                             player.velocityX = data.velocityX;
                             player.velocityY = data.velocityY;
 
-                            // Emit the updated position back to the client
                             socket.emit('playerMoved', player);
                         }
                     }
