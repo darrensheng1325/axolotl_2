@@ -33,6 +33,8 @@ interface Player {
   health: number;
   inventory: Item[];
   isInvulnerable?: boolean;
+  knockbackX?: number; // New property
+  knockbackY?: number; // New property
 }
 
 interface Dot {
@@ -50,6 +52,8 @@ interface Enemy {
   health: number;
   speed: number;
   damage: number;
+  knockbackX?: number; // New property
+  knockbackY?: number; // New property
 }
 
 interface Obstacle {
@@ -103,6 +107,10 @@ const MAX_INVENTORY_SIZE = 5;
 
 const RESPAWN_INVULNERABILITY_TIME = 3000; // 3 seconds of invulnerability after respawn
 
+// Add knockback constants at the top with other constants
+const KNOCKBACK_FORCE = 100; // Increased from 20 to 100
+const KNOCKBACK_RECOVERY_SPEED = 0.9; // How quickly the knockback effect diminishes
+
 function createEnemy(): Enemy {
   const tierRoll = Math.random();
   let tier: keyof typeof ENEMY_TIERS = 'common'; // Initialize with a default value
@@ -127,18 +135,31 @@ function createEnemy(): Enemy {
     angle: Math.random() * Math.PI * 2,
     health: tierData.health,
     speed: tierData.speed,
-    damage: tierData.damage
+    damage: tierData.damage,
+    knockbackX: 0,
+    knockbackY: 0
   };
 }
 
 function moveEnemies() {
   enemies.forEach(enemy => {
+    // Apply knockback recovery
+    if (enemy.knockbackX) {
+      enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+      enemy.x += enemy.knockbackX;
+      if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
+    }
+    if (enemy.knockbackY) {
+      enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+      enemy.y += enemy.knockbackY;
+      if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
+    }
+
+    // Regular movement
     if (enemy.type === 'octopus') {
-      // Octopus moves randomly
       enemy.x += (Math.random() * 4 - 2) * enemy.speed;
       enemy.y += (Math.random() * 4 - 2) * enemy.speed;
     } else {
-      // Fish moves in a straight line
       enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
       enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
     }
@@ -147,7 +168,6 @@ function moveEnemies() {
     enemy.x = (enemy.x + WORLD_WIDTH) % WORLD_WIDTH;
     enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
 
-    // Change fish direction occasionally
     if (enemy.type === 'fish' && Math.random() < 0.02) {
       enemy.angle = Math.random() * Math.PI * 2;
     }
@@ -248,8 +268,20 @@ io.on('connection', (socket) => {
   socket.on('playerMovement', (movementData) => {
     const player = players[socket.id];
     if (player) {
-      const newX = Math.max(0, Math.min(WORLD_WIDTH, movementData.x));
-      const newY = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y));
+      let newX = Math.max(0, Math.min(WORLD_WIDTH, movementData.x));
+      let newY = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y));
+
+      // Apply knockback to player position if it exists
+      if (player.knockbackX) {
+        player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+        newX += player.knockbackX;
+        if (Math.abs(player.knockbackX) < 0.1) player.knockbackX = 0;
+      }
+      if (player.knockbackY) {
+        player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+        newY += player.knockbackY;
+        if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
+      }
 
       // Check collision with obstacles and enemies
       let collision = false;
@@ -280,16 +312,47 @@ io.on('connection', (socket) => {
       // Check enemies
       for (const enemy of enemies) {
         if (
-          newX < enemy.x + 40 && // Assuming enemy width is 40
+          newX < enemy.x + 40 &&
           newX + 40 > enemy.x &&
-          newY < enemy.y + 40 && // Assuming enemy height is 40
+          newY < enemy.y + 40 &&
           newY + 40 > enemy.y
         ) {
           collision = true;
           if (!player.isInvulnerable) {
+            // Enemy damages player
             player.health -= enemy.damage;
             io.emit('playerDamaged', { playerId: player.id, health: player.health });
 
+            // Player damages enemy
+            enemy.health -= PLAYER_DAMAGE;
+            io.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+
+            // Calculate knockback direction
+            const dx = enemy.x - newX;
+            const dy = enemy.y - newY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const normalizedDx = dx / distance;
+            const normalizedDy = dy / distance;
+
+            // Apply stronger knockback to player's position immediately
+            newX -= normalizedDx * KNOCKBACK_FORCE;
+            newY -= normalizedDy * KNOCKBACK_FORCE;
+            
+            // Store stronger knockback for gradual recovery
+            player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
+            player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+
+            // Check if enemy dies
+            if (enemy.health <= 0) {
+              const index = enemies.findIndex(e => e.id === enemy.id);
+              if (index !== -1) {
+                enemies.splice(index, 1);
+                io.emit('enemyDestroyed', enemy.id);
+                enemies.push(createEnemy());
+              }
+            }
+
+            // Check if player dies
             if (player.health <= 0) {
               respawnPlayer(player);
               io.emit('playerDied', player.id);

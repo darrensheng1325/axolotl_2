@@ -10,6 +10,9 @@ interface Player {
     velocityY: number;
     health: number;
     inventory: Item[];
+    isInvulnerable?: boolean;
+    knockbackX?: number;
+    knockbackY?: number;
 }
 
 interface Enemy {
@@ -22,6 +25,8 @@ interface Enemy {
     health: number;
     speed: number;
     damage: number;
+    knockbackX?: number;
+    knockbackY?: number;
 }
 
 interface Item {
@@ -62,6 +67,9 @@ const MAX_INVENTORY_SIZE = 5;
 const PLAYER_SIZE = 40;
 const COLLISION_RADIUS = PLAYER_SIZE / 2;
 const ENEMY_SIZE = 40;
+const RESPAWN_INVULNERABILITY_TIME = 3000;
+const KNOCKBACK_FORCE = 100; // Increased from 20 to 100
+const KNOCKBACK_RECOVERY_SPEED = 0.9;
 
 const ENEMY_TIERS = {
     common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
@@ -102,7 +110,9 @@ function createEnemy(): Enemy {
         angle: Math.random() * Math.PI * 2,
         health: tierData.health,
         speed: tierData.speed,
-        damage: tierData.damage
+        damage: tierData.damage,
+        knockbackX: 0,
+        knockbackY: 0
     };
 }
 
@@ -131,6 +141,19 @@ function createItem(): Item {
 
 function moveEnemies() {
     enemies.forEach(enemy => {
+        // Apply knockback recovery
+        if (enemy.knockbackX) {
+            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.x += enemy.knockbackX;
+            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
+        }
+        if (enemy.knockbackY) {
+            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.y += enemy.knockbackY;
+            if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
+        }
+
+        // Regular movement
         if (enemy.type === 'octopus') {
             enemy.x += (Math.random() * 4 - 2) * enemy.speed;
             enemy.y += (Math.random() * 4 - 2) * enemy.speed;
@@ -208,8 +231,16 @@ function initializeGame() {
         velocityX: 0,
         velocityY: 0,
         health: PLAYER_MAX_HEALTH,
-        inventory: []
+        inventory: [],
+        isInvulnerable: true
     };
+
+    // Remove initial invulnerability after the specified time
+    setTimeout(() => {
+        if (players[socket.id]) {
+            players[socket.id].isInvulnerable = false;
+        }
+    }, RESPAWN_INVULNERABILITY_TIME);
 
     // Create enemies
     for (let i = 0; i < ENEMY_COUNT; i++) {
@@ -259,79 +290,113 @@ self.onmessage = (event) => {
                 case 'playerMovement':
                     const player = players[socket.id];
                     if (player) {
-                        // Check collision with obstacles
+                        let newX = data.x;
+                        let newY = data.y;
+
+                        // Apply knockback to player position if it exists
+                        if (player.knockbackX) {
+                            player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+                            newX += player.knockbackX;
+                            if (Math.abs(player.knockbackX) < 0.1) player.knockbackX = 0;
+                        }
+                        if (player.knockbackY) {
+                            player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+                            newY += player.knockbackY;
+                            if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
+                        }
+
                         let collision = false;
-                        for (const obstacle of obstacles) {
-                            // Rectangle collision detection
+
+                        // Check collision with enemies first
+                        for (const enemy of enemies) {
+                            // Use rectangle collision like the server
                             if (
-                                data.x < obstacle.x + obstacle.width &&
-                                data.x + PLAYER_SIZE > obstacle.x &&
-                                data.y < obstacle.y + obstacle.height &&
-                                data.y + PLAYER_SIZE > obstacle.y
+                                newX < enemy.x + ENEMY_SIZE &&
+                                newX + PLAYER_SIZE > enemy.x &&
+                                newY < enemy.y + ENEMY_SIZE &&
+                                newY + PLAYER_SIZE > enemy.y
                             ) {
                                 collision = true;
-                                if (obstacle.isEnemy) {
-                                    player.health -= ENEMY_CORAL_DAMAGE;
+                                if (!player.isInvulnerable) {
+                                    // Enemy damages player
+                                    player.health -= enemy.damage;
                                     socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+
+                                    // Player damages enemy
+                                    enemy.health -= PLAYER_DAMAGE;
+                                    socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+
+                                    // Calculate knockback direction
+                                    const dx = enemy.x - newX;
+                                    const dy = enemy.y - newY;
+                                    const distance = Math.sqrt(dx * dx + dy * dy);
+                                    const normalizedDx = dx / distance;
+                                    const normalizedDy = dy / distance;
+
+                                    // Apply knockback to player's position immediately
+                                    newX -= normalizedDx * KNOCKBACK_FORCE;
+                                    newY -= normalizedDy * KNOCKBACK_FORCE;
                                     
-                                    if (obstacle.health) {
-                                        obstacle.health -= PLAYER_DAMAGE;
-                                        if (obstacle.health <= 0) {
-                                            const index = obstacles.findIndex(o => o.id === obstacle.id);
-                                            if (index !== -1) {
-                                                obstacles.splice(index, 1);
-                                                socket.emit('obstacleDestroyed', obstacle.id);
-                                                obstacles.push(createObstacle());
-                                            }
+                                    // Store knockback for gradual recovery
+                                    player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
+                                    player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+
+                                    // Check if enemy dies
+                                    if (enemy.health <= 0) {
+                                        const index = enemies.findIndex(e => e.id === enemy.id);
+                                        if (index !== -1) {
+                                            enemies.splice(index, 1);
+                                            socket.emit('enemyDestroyed', enemy.id);
+                                            enemies.push(createEnemy());
                                         }
+                                    }
+
+                                    // Check if player dies
+                                    if (player.health <= 0) {
+                                        respawnPlayer(player);
+                                        socket.emit('playerDied', player.id);
+                                        socket.emit('playerRespawned', player);
+                                        return; // Exit early if player dies
                                     }
                                 }
                                 break;
                             }
                         }
 
-                        // Check collision with enemies
-                        enemies.forEach(enemy => {
-                            // Circle collision detection
-                            const dx = (data.x + PLAYER_SIZE/2) - (enemy.x + ENEMY_SIZE/2);
-                            const dy = (data.y + PLAYER_SIZE/2) - (enemy.y + ENEMY_SIZE/2);
-                            const distance = Math.sqrt(dx * dx + dy * dy);
-                            
-                            if (distance < PLAYER_SIZE/2 + ENEMY_SIZE/2) {
-                                player.health -= enemy.damage;
-                                socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+                        // Check collision with obstacles
+                        for (const obstacle of obstacles) {
+                            if (
+                                newX < obstacle.x + obstacle.width &&
+                                newX + PLAYER_SIZE > obstacle.x &&
+                                newY < obstacle.y + obstacle.height &&
+                                newY + PLAYER_SIZE > obstacle.y
+                            ) {
+                                collision = true;
+                                if (obstacle.isEnemy && !player.isInvulnerable) {
+                                    player.health -= ENEMY_CORAL_DAMAGE;
+                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
 
-                                enemy.health -= PLAYER_DAMAGE;
-                                if (enemy.health <= 0) {
-                                    const index = enemies.findIndex(e => e.id === enemy.id);
-                                    if (index !== -1) {
-                                        enemies.splice(index, 1);
-                                        socket.emit('enemyDestroyed', enemy.id);
-                                        enemies.push(createEnemy());
+                                    if (player.health <= 0) {
+                                        respawnPlayer(player);
+                                        socket.emit('playerDied', player.id);
+                                        socket.emit('playerRespawned', player);
+                                        return; // Exit early if player dies
                                     }
-                                } else {
-                                    socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
                                 }
-
-                                if (player.health <= 0) {
-                                    player.health = PLAYER_MAX_HEALTH;
-                                    player.x = Math.random() * WORLD_WIDTH;
-                                    player.y = Math.random() * WORLD_HEIGHT;
-                                    socket.emit('playerMoved', player);
-                                }
+                                break;
                             }
-                        });
-
-                        if (!collision) {
-                            // Update player position
-                            player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, data.x));
-                            player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, data.y));
-                            player.angle = data.angle;
-                            player.velocityX = data.velocityX;
-                            player.velocityY = data.velocityY;
-
-                            socket.emit('playerMoved', player);
                         }
+
+                        // Update player position
+                        // Even if there was a collision, we want to apply the knockback
+                        player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+                        player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+                        player.angle = data.angle;
+                        player.velocityX = data.velocityX;
+                        player.velocityY = data.velocityY;
+
+                        // Always emit the player's position
+                        socket.emit('playerMoved', player);
                     }
                     break;
 
@@ -383,3 +448,21 @@ setInterval(() => {
 self.onerror = (error) => {
     console.error('Worker error:', error);
 };
+
+// Add the respawn function
+function respawnPlayer(player: Player) {
+  player.health = PLAYER_MAX_HEALTH;
+  player.x = Math.random() * WORLD_WIDTH;
+  player.y = Math.random() * WORLD_HEIGHT;
+  player.score = Math.max(0, player.score - 10);
+  player.inventory = [];
+  player.isInvulnerable = true;
+
+  // Notify the main thread
+  self.postMessage({ type: 'playerDied', playerId: player.id });
+  self.postMessage({ type: 'playerRespawned', player });
+
+  setTimeout(() => {
+    player.isInvulnerable = false;
+  }, RESPAWN_INVULNERABILITY_TIME);
+}
