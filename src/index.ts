@@ -74,6 +74,380 @@ window.onload = () => {
     });
 };
 
+// Add this at the top of index.ts, before the Game class
+const workerCode = `
+// Worker code starts here
+const WORLD_WIDTH = 2000;
+const WORLD_HEIGHT = 2000;
+const ENEMY_COUNT = 10;
+const OBSTACLE_COUNT = 20;
+const ENEMY_CORAL_PROBABILITY = 0.3;
+const ENEMY_CORAL_HEALTH = 50;
+const ENEMY_CORAL_DAMAGE = 5;
+const PLAYER_MAX_HEALTH = 100;
+const PLAYER_DAMAGE = 10;
+const ITEM_COUNT = 10;
+const MAX_INVENTORY_SIZE = 5;
+const PLAYER_SIZE = 40;
+const COLLISION_RADIUS = PLAYER_SIZE / 2;
+const ENEMY_SIZE = 40;
+const RESPAWN_INVULNERABILITY_TIME = 3000;
+const KNOCKBACK_FORCE = 100;
+const KNOCKBACK_RECOVERY_SPEED = 0.9;
+
+const ENEMY_TIERS = {
+    common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
+    uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3 },
+    rare: { health: 60, speed: 1, damage: 15, probability: 0.15 },
+    epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1 },
+    legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04 },
+    mythic: { health: 150, speed: 2, damage: 30, probability: 0.01 }
+};
+
+const players = {};
+const enemies = [];
+const obstacles = [];
+const items = [];
+const dots = [];
+
+function createEnemy() {
+    const tierRoll = Math.random();
+    let tier = 'common';
+    let cumulativeProbability = 0;
+    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
+        cumulativeProbability += data.probability;
+        if (tierRoll < cumulativeProbability) {
+            tier = t;
+            break;
+        }
+    }
+    const tierData = ENEMY_TIERS[tier];
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        type: Math.random() < 0.5 ? 'octopus' : 'fish',
+        tier,
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        angle: Math.random() * Math.PI * 2,
+        health: tierData.health,
+        speed: tierData.speed,
+        damage: tierData.damage,
+        knockbackX: 0,
+        knockbackY: 0
+    };
+}
+
+function createObstacle() {
+    const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        width: 50 + Math.random() * 50,
+        height: 50 + Math.random() * 50,
+        type: 'coral',
+        isEnemy,
+        health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
+    };
+}
+
+function createItem() {
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT
+    };
+}
+
+function moveEnemies() {
+    enemies.forEach(enemy => {
+        if (enemy.knockbackX) {
+            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.x += enemy.knockbackX;
+            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
+        }
+        if (enemy.knockbackY) {
+            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.y += enemy.knockbackY;
+            if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
+        }
+
+        if (enemy.type === 'octopus') {
+            enemy.x += (Math.random() * 4 - 2) * enemy.speed;
+            enemy.y += (Math.random() * 4 - 2) * enemy.speed;
+        } else {
+            enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
+            enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
+        }
+
+        enemy.x = (enemy.x + WORLD_WIDTH) % WORLD_WIDTH;
+        enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
+
+        if (enemy.type === 'fish' && Math.random() < 0.02) {
+            enemy.angle = Math.random() * Math.PI * 2;
+        }
+    });
+}
+
+class MockSocket {
+    constructor() {
+        this.eventHandlers = new Map();
+        this.id = 'player1';
+        this.broadcast = {
+            emit: (event, data) => {
+                // In single player, broadcast events are ignored
+            }
+        };
+    }
+    on(event, handler) {
+        if (!this.eventHandlers.has(event)) {
+            this.eventHandlers.set(event, []);
+        }
+        this.eventHandlers.get(event)?.push(handler);
+    }
+    emit(event, data) {
+        self.postMessage({
+            type: 'socketEvent',
+            event,
+            data
+        });
+    }
+    getId() {
+        return this.id;
+    }
+}
+
+const mockIo = {
+    emit: (event, data) => {
+        self.postMessage({
+            type: 'socketEvent',
+            event,
+            data
+        });
+    }
+};
+
+const socket = new MockSocket();
+
+function initializeGame() {
+    console.log('Initializing game state in worker');
+    
+    players[socket.id] = {
+        id: socket.id,
+        x: WORLD_WIDTH / 2,
+        y: WORLD_HEIGHT / 2,
+        angle: 0,
+        score: 0,
+        velocityX: 0,
+        velocityY: 0,
+        health: PLAYER_MAX_HEALTH,
+        inventory: [],
+        isInvulnerable: true
+    };
+
+    setTimeout(() => {
+        if (players[socket.id]) {
+            players[socket.id].isInvulnerable = false;
+        }
+    }, RESPAWN_INVULNERABILITY_TIME);
+
+    for (let i = 0; i < ENEMY_COUNT; i++) {
+        enemies.push(createEnemy());
+    }
+
+    for (let i = 0; i < OBSTACLE_COUNT; i++) {
+        obstacles.push(createObstacle());
+    }
+
+    for (let i = 0; i < ITEM_COUNT; i++) {
+        items.push(createItem());
+    }
+
+    for (let i = 0; i < 20; i++) {
+        dots.push({
+            x: Math.random() * WORLD_WIDTH,
+            y: Math.random() * WORLD_HEIGHT
+        });
+    }
+
+    socket.emit('currentPlayers', players);
+    socket.emit('enemiesUpdate', enemies);
+    socket.emit('obstaclesUpdate', obstacles);
+    socket.emit('itemsUpdate', items);
+    socket.emit('playerMoved', players[socket.id]);
+}
+
+function respawnPlayer(player) {
+    player.health = PLAYER_MAX_HEALTH;
+    player.x = Math.random() * WORLD_WIDTH;
+    player.y = Math.random() * WORLD_HEIGHT;
+    player.score = Math.max(0, player.score - 10);
+    player.inventory = [];
+    player.isInvulnerable = true;
+
+    self.postMessage({ type: 'playerDied', playerId: player.id });
+    self.postMessage({ type: 'playerRespawned', player });
+
+    setTimeout(() => {
+        player.isInvulnerable = false;
+    }, RESPAWN_INVULNERABILITY_TIME);
+}
+
+self.onmessage = (event) => {
+    const { type, event: socketEvent, data } = event.data;
+    console.log('Worker received message:', type, data);
+    
+    switch (type) {
+        case 'init':
+            initializeGame();
+            break;
+
+        case 'socketEvent':
+            switch (socketEvent) {
+                case 'playerMovement':
+                    const player = players[socket.id];
+                    if (player) {
+                        let newX = data.x;
+                        let newY = data.y;
+
+                        if (player.knockbackX) {
+                            player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+                            newX += player.knockbackX;
+                            if (Math.abs(player.knockbackX) < 0.1) player.knockbackX = 0;
+                        }
+                        if (player.knockbackY) {
+                            player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+                            newY += player.knockbackY;
+                            if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
+                        }
+
+                        let collision = false;
+
+                        for (const enemy of enemies) {
+                            if (
+                                newX < enemy.x + ENEMY_SIZE &&
+                                newX + PLAYER_SIZE > enemy.x &&
+                                newY < enemy.y + ENEMY_SIZE &&
+                                newY + PLAYER_SIZE > enemy.y
+                            ) {
+                                collision = true;
+                                if (!player.isInvulnerable) {
+                                    player.health -= enemy.damage;
+                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+
+                                    enemy.health -= PLAYER_DAMAGE;
+                                    socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+
+                                    const dx = enemy.x - newX;
+                                    const dy = enemy.y - newY;
+                                    const distance = Math.sqrt(dx * dx + dy * dy);
+                                    const normalizedDx = dx / distance;
+                                    const normalizedDy = dy / distance;
+
+                                    newX -= normalizedDx * KNOCKBACK_FORCE;
+                                    newY -= normalizedDy * KNOCKBACK_FORCE;
+                                    
+                                    player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
+                                    player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+
+                                    if (enemy.health <= 0) {
+                                        const index = enemies.findIndex(e => e.id === enemy.id);
+                                        if (index !== -1) {
+                                            enemies.splice(index, 1);
+                                            socket.emit('enemyDestroyed', enemy.id);
+                                            enemies.push(createEnemy());
+                                        }
+                                    }
+
+                                    if (player.health <= 0) {
+                                        respawnPlayer(player);
+                                        socket.emit('playerDied', player.id);
+                                        socket.emit('playerRespawned', player);
+                                        return;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        for (const obstacle of obstacles) {
+                            if (
+                                newX < obstacle.x + obstacle.width &&
+                                newX + PLAYER_SIZE > obstacle.x &&
+                                newY < obstacle.y + obstacle.height &&
+                                newY + PLAYER_SIZE > obstacle.y
+                            ) {
+                                collision = true;
+                                if (obstacle.isEnemy && !player.isInvulnerable) {
+                                    player.health -= ENEMY_CORAL_DAMAGE;
+                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+
+                                    if (player.health <= 0) {
+                                        respawnPlayer(player);
+                                        socket.emit('playerDied', player.id);
+                                        socket.emit('playerRespawned', player);
+                                        return;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+                        player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+                        player.angle = data.angle;
+                        player.velocityX = data.velocityX;
+                        player.velocityY = data.velocityY;
+
+                        socket.emit('playerMoved', player);
+                    }
+                    break;
+
+                case 'collectItem':
+                    const itemIndex = items.findIndex(item => item.id === data.itemId);
+                    if (itemIndex !== -1 && players[socket.id].inventory.length < MAX_INVENTORY_SIZE) {
+                        const item = items[itemIndex];
+                        players[socket.id].inventory.push(item);
+                        items.splice(itemIndex, 1);
+                        items.push(createItem());
+                        socket.emit('itemCollected', { playerId: socket.id, itemId: data.itemId });
+                    }
+                    break;
+
+                case 'useItem':
+                    const playerUsingItem = players[socket.id];
+                    const inventoryIndex = playerUsingItem.inventory.findIndex(item => item.id === data.itemId);
+                    if (inventoryIndex !== -1) {
+                        const item = playerUsingItem.inventory[inventoryIndex];
+                        playerUsingItem.inventory.splice(inventoryIndex, 1);
+                        switch (item.type) {
+                            case 'health_potion':
+                                playerUsingItem.health = Math.min(playerUsingItem.health + 50, PLAYER_MAX_HEALTH);
+                                break;
+                            case 'speed_boost':
+                                break;
+                            case 'shield':
+                                break;
+                        }
+                        socket.emit('itemUsed', { playerId: socket.id, itemId: data.itemId });
+                    }
+                    break;
+            }
+            break;
+    }
+};
+
+setInterval(() => {
+    moveEnemies();
+    mockIo.emit('enemiesUpdate', enemies);
+}, 100);
+
+self.onerror = (error) => {
+    console.error('Worker error:', error);
+};
+`;
+
 class Game {
     private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
@@ -164,8 +538,15 @@ class Game {
     private initSinglePlayerMode() {
         console.log('Initializing single player mode');
         try {
-            // Create the worker using the external file
-            this.worker = new Worker(new URL('./singlePlayerWorker.ts', import.meta.url));
+            // Create a blob URL from the worker code string
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            const workerUrl = URL.createObjectURL(blob);
+            
+            // Create the worker using the blob URL
+            this.worker = new Worker(workerUrl);
+            
+            // Clean up the blob URL
+            URL.revokeObjectURL(workerUrl);
             
             // Create a mock socket for single player
             const mockSocket = {
@@ -849,375 +1230,4 @@ class Game {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 }
-
-// Add the worker code as a string
-const singlePlayerWorkerCode = `
-// Add constants at the top
-const WORLD_WIDTH = 2000;
-const WORLD_HEIGHT = 2000;
-const ENEMY_COUNT = 10;
-const OBSTACLE_COUNT = 20;
-const ENEMY_CORAL_PROBABILITY = 0.3;
-const ENEMY_CORAL_HEALTH = 50;
-const ENEMY_CORAL_DAMAGE = 5;
-const PLAYER_MAX_HEALTH = 100;
-const PLAYER_DAMAGE = 10;
-const ITEM_COUNT = 10;
-const MAX_INVENTORY_SIZE = 5;
-const PLAYER_SIZE = 40;
-const COLLISION_RADIUS = PLAYER_SIZE / 2;
-const ENEMY_SIZE = 40;
-const RESPAWN_INVULNERABILITY_TIME = 3000;
-const KNOCKBACK_FORCE = 100; // Increased from 20 to 100
-const KNOCKBACK_RECOVERY_SPEED = 0.9;
-const ENEMY_TIERS = {
-    common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
-    uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3 },
-    rare: { health: 60, speed: 1, damage: 15, probability: 0.15 },
-    epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1 },
-    legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04 },
-    mythic: { health: 150, speed: 2, damage: 30, probability: 0.01 }
-};
-const players = {};
-const enemies = [];
-const obstacles = [];
-const items = [];
-const dots = [];
-function createEnemy() {
-    const tierRoll = Math.random();
-    let tier = 'common';
-    let cumulativeProbability = 0;
-    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
-        cumulativeProbability += data.probability;
-        if (tierRoll < cumulativeProbability) {
-            tier = t;
-            break;
-        }
-    }
-    const tierData = ENEMY_TIERS[tier];
-    return {
-        id: Math.random().toString(36).substr(2, 9),
-        type: Math.random() < 0.5 ? 'octopus' : 'fish',
-        tier,
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
-        angle: Math.random() * Math.PI * 2,
-        health: tierData.health,
-        speed: tierData.speed,
-        damage: tierData.damage,
-        knockbackX: 0,
-        knockbackY: 0
-    };
-}
-function createObstacle() {
-    const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
-    return {
-        id: Math.random().toString(36).substr(2, 9),
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
-        width: 50 + Math.random() * 50,
-        height: 50 + Math.random() * 50,
-        type: 'coral',
-        isEnemy,
-        health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
-    };
-}
-function createItem() {
-    return {
-        id: Math.random().toString(36).substr(2, 9),
-        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT
-    };
-}
-function moveEnemies() {
-    enemies.forEach(enemy => {
-        // Apply knockback recovery
-        if (enemy.knockbackX) {
-            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.x += enemy.knockbackX;
-            if (Math.abs(enemy.knockbackX) < 0.1)
-                enemy.knockbackX = 0;
-        }
-        if (enemy.knockbackY) {
-            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.y += enemy.knockbackY;
-            if (Math.abs(enemy.knockbackY) < 0.1)
-                enemy.knockbackY = 0;
-        }
-        // Regular movement
-        if (enemy.type === 'octopus') {
-            enemy.x += (Math.random() * 4 - 2) * enemy.speed;
-            enemy.y += (Math.random() * 4 - 2) * enemy.speed;
-        }
-        else {
-            enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
-            enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
-        }
-        enemy.x = (enemy.x + WORLD_WIDTH) % WORLD_WIDTH;
-        enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
-        if (enemy.type === 'fish' && Math.random() < 0.02) {
-            enemy.angle = Math.random() * Math.PI * 2;
-        }
-    });
-}
-// Mock socket connection for single player
-class MockSocket {
-    constructor() {
-        this.eventHandlers = new Map();
-        this.id = 'player1'; // Changed to public readonly
-        this.broadcast = {
-            emit: (event, data) => {
-                // In single player, broadcast events are ignored
-            }
-        };
-    }
-    on(event, handler) {
-        if (!this.eventHandlers.has(event)) {
-            this.eventHandlers.set(event, []);
-        }
-        this.eventHandlers.get(event)?.push(handler);
-    }
-    emit(event, data) {
-        // Forward to main thread
-        self.postMessage({
-            type: 'socketEvent',
-            event,
-            data
-        });
-    }
-    // Add getter for id if needed
-    getId() {
-        return this.id;
-    }
-}
-// Mock io for single player
-const mockIo = {
-    emit: (event, data) => {
-        self.postMessage({
-            type: 'socketEvent',
-            event,
-            data
-        });
-    }
-};
-const socket = new MockSocket();
-// Initialize game state
-function initializeGame() {
-    console.log('Initializing game state in worker');
-    // Create player
-    players[socket.id] = {
-        id: socket.id,
-        x: WORLD_WIDTH / 2, // Start in the middle
-        y: WORLD_HEIGHT / 2,
-        angle: 0,
-        score: 0,
-        velocityX: 0,
-        velocityY: 0,
-        health: PLAYER_MAX_HEALTH,
-        inventory: [],
-        isInvulnerable: true
-    };
-    // Remove initial invulnerability after the specified time
-    setTimeout(() => {
-        if (players[socket.id]) {
-            players[socket.id].isInvulnerable = false;
-        }
-    }, RESPAWN_INVULNERABILITY_TIME);
-    // Create enemies
-    for (let i = 0; i < ENEMY_COUNT; i++) {
-        enemies.push(createEnemy());
-    }
-    // Create obstacles
-    for (let i = 0; i < OBSTACLE_COUNT; i++) {
-        obstacles.push(createObstacle());
-    }
-    // Create items
-    for (let i = 0; i < ITEM_COUNT; i++) {
-        items.push(createItem());
-    }
-    // Create dots
-    for (let i = 0; i < 20; i++) {
-        dots.push({
-            x: Math.random() * WORLD_WIDTH,
-            y: Math.random() * WORLD_HEIGHT
-        });
-    }
-    console.log('Sending initial game state');
-    // Send all initial state in the correct order
-    socket.emit('currentPlayers', players);
-    socket.emit('enemiesUpdate', enemies);
-    socket.emit('obstaclesUpdate', obstacles);
-    socket.emit('itemsUpdate', items);
-    socket.emit('playerMoved', players[socket.id]); // Ensure player position is set
-}
-// Handle messages from main thread
-self.onmessage = (event) => {
-    const { type, event: socketEvent, data } = event.data;
-    console.log('Worker received message:', type, data);
-    switch (type) {
-        case 'init':
-            initializeGame();
-            break;
-        case 'socketEvent':
-            switch (socketEvent) {
-                case 'playerMovement':
-                    const player = players[socket.id];
-                    if (player) {
-                        let newX = data.x;
-                        let newY = data.y;
-                        // Apply knockback to player position if it exists
-                        if (player.knockbackX) {
-                            player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-                            newX += player.knockbackX;
-                            if (Math.abs(player.knockbackX) < 0.1)
-                                player.knockbackX = 0;
-                        }
-                        if (player.knockbackY) {
-                            player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-                            newY += player.knockbackY;
-                            if (Math.abs(player.knockbackY) < 0.1)
-                                player.knockbackY = 0;
-                        }
-                        let collision = false;
-                        // Check collision with enemies first
-                        for (const enemy of enemies) {
-                            // Use rectangle collision like the server
-                            if (newX < enemy.x + ENEMY_SIZE &&
-                                newX + PLAYER_SIZE > enemy.x &&
-                                newY < enemy.y + ENEMY_SIZE &&
-                                newY + PLAYER_SIZE > enemy.y) {
-                                collision = true;
-                                if (!player.isInvulnerable) {
-                                    // Enemy damages player
-                                    player.health -= enemy.damage;
-                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
-                                    // Player damages enemy
-                                    enemy.health -= PLAYER_DAMAGE;
-                                    socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
-                                    // Calculate knockback direction
-                                    const dx = enemy.x - newX;
-                                    const dy = enemy.y - newY;
-                                    const distance = Math.sqrt(dx * dx + dy * dy);
-                                    const normalizedDx = dx / distance;
-                                    const normalizedDy = dy / distance;
-                                    // Apply knockback to player's position immediately
-                                    newX -= normalizedDx * KNOCKBACK_FORCE;
-                                    newY -= normalizedDy * KNOCKBACK_FORCE;
-                                    // Store knockback for gradual recovery
-                                    player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
-                                    player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
-                                    // Check if enemy dies
-                                    if (enemy.health <= 0) {
-                                        const index = enemies.findIndex(e => e.id === enemy.id);
-                                        if (index !== -1) {
-                                            enemies.splice(index, 1);
-                                            socket.emit('enemyDestroyed', enemy.id);
-                                            enemies.push(createEnemy());
-                                        }
-                                    }
-                                    // Check if player dies
-                                    if (player.health <= 0) {
-                                        respawnPlayer(player);
-                                        socket.emit('playerDied', player.id);
-                                        socket.emit('playerRespawned', player);
-                                        return; // Exit early if player dies
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                        // Check collision with obstacles
-                        for (const obstacle of obstacles) {
-                            if (newX < obstacle.x + obstacle.width &&
-                                newX + PLAYER_SIZE > obstacle.x &&
-                                newY < obstacle.y + obstacle.height &&
-                                newY + PLAYER_SIZE > obstacle.y) {
-                                collision = true;
-                                if (obstacle.isEnemy && !player.isInvulnerable) {
-                                    player.health -= ENEMY_CORAL_DAMAGE;
-                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
-                                    if (player.health <= 0) {
-                                        respawnPlayer(player);
-                                        socket.emit('playerDied', player.id);
-                                        socket.emit('playerRespawned', player);
-                                        return; // Exit early if player dies
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                        // Update player position
-                        // Even if there was a collision, we want to apply the knockback
-                        player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
-                        player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
-                        player.angle = data.angle;
-                        player.velocityX = data.velocityX;
-                        player.velocityY = data.velocityY;
-                        // Always emit the player's position
-                        socket.emit('playerMoved', player);
-                    }
-                    break;
-                case 'collectItem':
-                    const itemIndex = items.findIndex(item => item.id === data.itemId);
-                    if (itemIndex !== -1 && players[socket.id].inventory.length < MAX_INVENTORY_SIZE) {
-                        const item = items[itemIndex];
-                        players[socket.id].inventory.push(item);
-                        items.splice(itemIndex, 1);
-                        items.push(createItem());
-                        socket.emit('itemCollected', { playerId: socket.id, itemId: data.itemId });
-                    }
-                    break;
-                case 'useItem':
-                    const playerUsingItem = players[socket.id];
-                    const inventoryIndex = playerUsingItem.inventory.findIndex(item => item.id === data.itemId);
-                    if (inventoryIndex !== -1) {
-                        const item = playerUsingItem.inventory[inventoryIndex];
-                        playerUsingItem.inventory.splice(inventoryIndex, 1);
-                        switch (item.type) {
-                            case 'health_potion':
-                                playerUsingItem.health = Math.min(playerUsingItem.health + 50, PLAYER_MAX_HEALTH);
-                                break;
-                            case 'speed_boost':
-                                // Implement speed boost
-                                break;
-                            case 'shield':
-                                // Implement shield
-                                break;
-                        }
-                        socket.emit('itemUsed', { playerId: socket.id, itemId: data.itemId });
-                    }
-                    break;
-                // ... (handle other socket events)
-            }
-            break;
-    }
-};
-// Game loop (like server's setInterval)
-setInterval(() => {
-    moveEnemies();
-    mockIo.emit('enemiesUpdate', enemies);
-}, 100);
-// Add error handling
-self.onerror = (error) => {
-    console.error('Worker error:', error);
-};
-// Add the respawn function
-function respawnPlayer(player) {
-    player.health = PLAYER_MAX_HEALTH;
-    player.x = Math.random() * WORLD_WIDTH;
-    player.y = Math.random() * WORLD_HEIGHT;
-    player.score = Math.max(0, player.score - 10);
-    player.inventory = [];
-    player.isInvulnerable = true;
-    // Notify the main thread
-    self.postMessage({ type: 'playerDied', playerId: player.id });
-    self.postMessage({ type: 'playerRespawned', player });
-    setTimeout(() => {
-        player.isInvulnerable = false;
-    }, RESPAWN_INVULNERABILITY_TIME);
-}
-export {};
-
-`;
 
