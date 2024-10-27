@@ -598,7 +598,7 @@ class Game {
     }
 
     private initMultiPlayerMode() {
-        this.socket = io(prompt("Enter the server URL eg https://localhost:3000:") || "", { 
+        this.socket = io(prompt("Enter the server URL eg https://localhost:3000: \n Join a public server: https://54.153.98.236:3000/") || "", { 
             secure: true,
             rejectUnauthorized: false,
             withCredentials: true
