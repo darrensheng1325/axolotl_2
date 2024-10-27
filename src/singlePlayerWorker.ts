@@ -140,6 +140,34 @@ function createDecoration(): Decoration {
     };
 }
 
+// Add Sand interface
+interface Sand {
+    x: number;
+    y: number;
+    radius: number;  // Random size for each sand blob
+    rotation: number;  // For slight variation in shape
+}
+
+// Add sand array and constants
+const SAND_COUNT = 50;  // Reduced from 200 to 50
+const MIN_SAND_RADIUS = 50;  // Increased from 30 to 50
+const MAX_SAND_RADIUS = 120; // Increased from 80 to 120
+const sands: Sand[] = [];
+
+// Add createSand function to make patches more spread out
+function createSand(): Sand {
+    // Create sand patches with more spacing
+    const sectionWidth = WORLD_WIDTH / (SAND_COUNT / 2);  // Divide world into sections
+    const sectionIndex = sands.length;
+    
+    return {
+        x: (sectionIndex * sectionWidth) + Math.random() * sectionWidth,  // Spread out along x-axis
+        y: Math.random() * WORLD_HEIGHT,
+        radius: MIN_SAND_RADIUS + Math.random() * (MAX_SAND_RADIUS - MIN_SAND_RADIUS),
+        rotation: Math.random() * Math.PI * 2
+    };
+}
+
 function calculateXPRequirement(level: number): number {
     return Math.floor(BASE_XP_REQUIREMENT * Math.pow(XP_MULTIPLIER, level - 1));
 }
@@ -408,6 +436,11 @@ function initializeGame(messageData?: { savedProgress?: any }) {
         decorations.push(createDecoration());
     }
 
+    // Create sand blobs
+    for (let i = 0; i < SAND_COUNT; i++) {
+        sands.push(createSand());
+    }
+
     console.log('Sending initial game state');
     
     // Send all initial state in the correct order
@@ -417,6 +450,7 @@ function initializeGame(messageData?: { savedProgress?: any }) {
     socket.emit('itemsUpdate', items);
     socket.emit('playerMoved', players[socket.id]); // Ensure player position is set
     socket.emit('decorationsUpdate', decorations);
+    socket.emit('sandsUpdate', sands);
 }
 
 // Handle messages from main thread
@@ -494,6 +528,27 @@ self.onmessage = (event) => {
                                             // Award XP before removing the enemy
                                             const xpGained = getXPFromEnemy(enemy);
                                             addXPToPlayer(player, xpGained);
+                                            
+                                            // Check for item drop and add directly to inventory
+                                            const dropChance = DROP_CHANCES[enemy.tier];
+                                            if (Math.random() < dropChance && player.inventory.length < MAX_INVENTORY_SIZE) {
+                                                // Create item and add directly to player's inventory
+                                                const newItem = {
+                                                    id: Math.random().toString(36).substr(2, 9),
+                                                    type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
+                                                    x: enemy.x,
+                                                    y: enemy.y
+                                                };
+                                                player.inventory.push(newItem);
+                                                
+                                                // Notify about item pickup
+                                                socket.emit('inventoryUpdate', player.inventory);
+                                                socket.emit('itemCollected', { 
+                                                    playerId: player.id, 
+                                                    itemId: newItem.id,
+                                                    itemType: newItem.type 
+                                                });
+                                            }
                                             
                                             // Remove the dead enemy and create a new one
                                             enemies.splice(index, 1);
@@ -640,3 +695,14 @@ function respawnPlayer(player: Player) {
         player.isInvulnerable = false;
     }, RESPAWN_INVULNERABILITY_TIME);
 }
+
+// Add drop chance constants
+const DROP_CHANCES = {
+    common: 0.1,      // 10% chance
+    uncommon: 0.2,    // 20% chance
+    rare: 0.3,        // 30% chance
+    epic: 0.4,        // 40% chance
+    legendary: 0.5,   // 50% chance
+    mythic: 0.75      // 75% chance
+};
+

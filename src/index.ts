@@ -135,6 +135,30 @@ function createDecoration(): Decoration {
     };
 }
 
+// Add Sand interface
+interface Sand {
+    x: number;
+    y: number;
+    radius: number;  // Random size for each sand blob
+    rotation: number;  // For slight variation in shape
+}
+
+// Add sand array and constants
+const SAND_COUNT = 200;  // Number of sand blobs
+const MIN_SAND_RADIUS = 30;
+const MAX_SAND_RADIUS = 80;
+const sands: Sand[] = [];
+
+// Add createSand function
+function createSand(): Sand {
+    return {
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        radius: MIN_SAND_RADIUS + Math.random() * (MAX_SAND_RADIUS - MIN_SAND_RADIUS),
+        rotation: Math.random() * Math.PI * 2
+    };
+}
+
 function createEnemy() {
     const tierRoll = Math.random();
     let tier = 'common';
@@ -308,6 +332,14 @@ function initializeGame(messageData?: { savedProgress?: any }) {
 
     // Add decorations to the initial state
     socket.emit('decorationsUpdate', decorations);
+
+    // Create sand blobs
+    for (let i = 0; i < SAND_COUNT; i++) {
+        sands.push(createSand());
+    }
+
+    // Add sand to the initial state
+    socket.emit('sandsUpdate', sands);
 
     socket.emit('currentPlayers', players);
     socket.emit('enemiesUpdate', enemies);
@@ -520,10 +552,10 @@ class Game {
     private dots: Dot[] = [];
     private readonly DOT_SIZE = 5;
     private readonly DOT_COUNT = 20;
-    // Reduce these values for slower movement
-    private readonly PLAYER_ACCELERATION = 0.5;  // Reduced from 1.5 to 0.5
-    private readonly MAX_SPEED = 8;             // Reduced from 20 to 8
-    private readonly FRICTION = 0.95;           // Increased friction from 0.98 to 0.95 for quicker deceleration
+    // Reduce these values for even slower movement
+    private readonly PLAYER_ACCELERATION = 0.2;  // Reduced from 0.5 to 0.2
+    private readonly MAX_SPEED = 4;             // Reduced from 8 to 4
+    private readonly FRICTION = 0.92;           // Increased friction from 0.95 to 0.92 for even quicker deceleration
     private cameraX = 0;
     private cameraY = 0;
     private readonly WORLD_WIDTH = 10000;  // Increased from 2000 to 10000
@@ -600,6 +632,17 @@ class Game {
         y: number;
         scale: number;
     }> = [];
+    // Add sand property
+    private sands: Array<{
+        x: number;
+        y: number;
+        radius: number;
+        rotation: number;
+    }> = [];
+    // Add control mode property
+    private useMouseControls: boolean = false;
+    private mouseX: number = 0;
+    private mouseY: number = 0;
 
     constructor(isSinglePlayer: boolean = false) {
         console.log('Game constructor called');
@@ -653,6 +696,15 @@ class Game {
         respawnButton?.addEventListener('click', () => {
             if (this.isPlayerDead) {
                 this.socket.emit('requestRespawn');
+            }
+        });
+
+        // Add mouse move listener
+        this.canvas.addEventListener('mousemove', (event) => {
+            if (this.useMouseControls) {
+                const rect = this.canvas.getBoundingClientRect();
+                this.mouseX = event.clientX - rect.left + this.cameraX;
+                this.mouseY = event.clientY - rect.top + this.cameraY;
             }
         });
     }
@@ -940,12 +992,34 @@ class Game {
         }>) => {
             this.decorations = decorations;
         });
+
+        this.socket.on('sandsUpdate', (sands: Array<{
+            x: number;
+            y: number;
+            radius: number;
+            rotation: number;
+        }>) => {
+            this.sands = sands;
+        });
     }
 
     private setupEventListeners() {
         document.addEventListener('keydown', (event) => {
             if (event.key === 'i' || event.key === 'I') {
                 this.toggleInventory();
+                return;
+            }
+
+            // Add control toggle with 'C' key
+            if (event.key === 'c' || event.key === 'C') {
+                this.useMouseControls = !this.useMouseControls;
+                this.showFloatingText(
+                    this.canvas.width / 2,
+                    50,
+                    `Controls: ${this.useMouseControls ? 'Mouse' : 'Keyboard'}`,
+                    '#FFFFFF',
+                    20
+                );
                 return;
             }
 
@@ -973,49 +1047,53 @@ class Game {
             this.players.get(this.socket?.id || '');
 
         if (player) {
-            let dx = 0;
-            let dy = 0;
+            if (this.useMouseControls) {
+                // Mouse controls
+                const dx = this.mouseX - player.x;
+                const dy = this.mouseY - player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (this.keysPressed.has('ArrowUp')) dy -= 1;
-            if (this.keysPressed.has('ArrowDown')) dy += 1;
-            if (this.keysPressed.has('ArrowLeft')) dx -= 1;
-            if (this.keysPressed.has('ArrowRight')) dx += 1;
-
-            // Normalize diagonal movement
-            if (dx !== 0 || dy !== 0) {
-                // Calculate angle based on movement direction
-                player.angle = Math.atan2(dy, dx);
-
-                // Normalize the direction vector
-                if (dx !== 0 && dy !== 0) {
-                    const length = Math.sqrt(dx * dx + dy * dy);
-                    dx /= length;
-                    dy /= length;
-                }
-
-                // Apply acceleration gradually
-                const acceleration = this.isSinglePlayer ? this.PLAYER_ACCELERATION * 2 : this.PLAYER_ACCELERATION;
-                player.velocityX += dx * acceleration;
-                player.velocityY += dy * acceleration;
-
-                // Limit speed
-                const maxSpeed = this.isSinglePlayer ? this.MAX_SPEED * 2 : this.MAX_SPEED;
-                const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
-                if (speed > maxSpeed) {
-                    const ratio = maxSpeed / speed;
-                    player.velocityX *= ratio;
-                    player.velocityY *= ratio;
+                if (distance > 5) {  // Add dead zone to prevent jittering
+                    player.velocityX += (dx / distance) * this.PLAYER_ACCELERATION;
+                    player.velocityY += (dy / distance) * this.PLAYER_ACCELERATION;
+                    player.angle = Math.atan2(dy, dx);
+                } else {
+                    player.velocityX *= this.FRICTION;
+                    player.velocityY *= this.FRICTION;
                 }
             } else {
-                // Apply friction when no keys are pressed
-                player.velocityX *= this.FRICTION;
-                player.velocityY *= this.FRICTION;
+                // Keyboard controls (existing code)
+                let dx = 0;
+                let dy = 0;
 
-                // Update angle based on velocity if moving
-                const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
-                if (speed > 0.1) {  // Only update angle if moving significantly
-                    player.angle = Math.atan2(player.velocityY, player.velocityX);
+                if (this.keysPressed.has('ArrowUp')) dy -= 1;
+                if (this.keysPressed.has('ArrowDown')) dy += 1;
+                if (this.keysPressed.has('ArrowLeft')) dx -= 1;
+                if (this.keysPressed.has('ArrowRight')) dx += 1;
+
+                if (dx !== 0 || dy !== 0) {
+                    player.angle = Math.atan2(dy, dx);
+
+                    if (dx !== 0 && dy !== 0) {
+                        const length = Math.sqrt(dx * dx + dy * dy);
+                        dx /= length;
+                        dy /= length;
+                    }
+
+                    player.velocityX += dx * this.PLAYER_ACCELERATION;
+                    player.velocityY += dy * this.PLAYER_ACCELERATION;
+                } else {
+                    player.velocityX *= this.FRICTION;
+                    player.velocityY *= this.FRICTION;
                 }
+            }
+
+            // Limit speed
+            const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
+            if (speed > this.MAX_SPEED) {
+                const ratio = this.MAX_SPEED / speed;
+                player.velocityX *= ratio;
+                player.velocityY *= ratio;
             }
 
             // Update position
@@ -1308,23 +1386,33 @@ class Game {
                 this.ctx.fill();
             });
 
-            // Draw decorations (before players and enemies)
-            this.decorations.forEach(decoration => {
+            // Draw sand first
+            this.sands.forEach(sand => {
                 this.ctx.save();
-                this.ctx.translate(decoration.x, decoration.y);
-                this.ctx.scale(decoration.scale, decoration.scale);
+                this.ctx.translate(sand.x, sand.y);
                 
-                // Draw palm tree (no rotation)
-                this.ctx.drawImage(
-                    this.palmSprite,
-                    -this.palmSprite.width / 2,
-                    -this.palmSprite.height / 2
-                );
+                // Draw sand blob with opaque color
+                this.ctx.fillStyle = '#FFE4B5';  // Moccasin color, fully opaque
+                this.ctx.beginPath();
+                
+                // Draw static blob shape using the saved rotation
+                this.ctx.moveTo(sand.radius * 0.8, 0);
+                for (let angle = 0; angle <= Math.PI * 2; angle += Math.PI / 8) {
+                    // Use the sand's saved rotation for consistent shape
+                    const currentAngle = angle + sand.rotation;
+                    const randomRadius = sand.radius * 0.9; // Less variation for more consistent shape
+                    const x = Math.cos(currentAngle) * randomRadius;
+                    const y = Math.sin(currentAngle) * randomRadius;
+                    this.ctx.lineTo(x, y);
+                }
+                
+                this.ctx.closePath();
+                this.ctx.fill();
                 
                 this.ctx.restore();
             });
 
-            // Draw players
+            // Draw players BEFORE decorations
             this.players.forEach((player, id) => {
                 this.ctx.save();
                 this.ctx.translate(player.x, player.y);
@@ -1335,7 +1423,7 @@ class Game {
                 
                 this.ctx.restore();
 
-                // Draw score and health
+                // Draw UI elements above player
                 this.ctx.fillStyle = 'black';
                 this.ctx.font = '16px Arial';
                 this.ctx.fillText(`Score: ${player.score}`, player.x - 30, player.y - 30);
@@ -1344,9 +1432,9 @@ class Game {
                 this.ctx.fillStyle = 'red';
                 this.ctx.fillRect(player.x - 25, player.y - 40, 50, 5);
                 this.ctx.fillStyle = 'green';
-                this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / this.PLAYER_MAX_HEALTH), 5);
+                this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / player.maxHealth), 5);
 
-                // Draw XP bar
+                // Draw XP bar and level
                 if (player.level < this.MAX_LEVEL) {
                     const xpBarWidth = 50;
                     const xpBarHeight = 3;
@@ -1401,6 +1489,22 @@ class Game {
                 this.ctx.fillStyle = 'white';
                 this.ctx.font = (12 * sizeMultiplier) + 'px Arial';
                 this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - healthBarWidth/2, enemy.y + enemySize/2 + 15);
+            });
+
+            // Draw decorations (palm trees) AFTER players and enemies
+            this.decorations.forEach(decoration => {
+                this.ctx.save();
+                this.ctx.translate(decoration.x, decoration.y);
+                this.ctx.scale(decoration.scale, decoration.scale);
+                
+                // Draw palm tree
+                this.ctx.drawImage(
+                    this.palmSprite,
+                    -this.palmSprite.width / 2,
+                    -this.palmSprite.height / 2
+                );
+                
+                this.ctx.restore();
             });
 
             // Draw obstacles
