@@ -574,6 +574,7 @@ class Game {
             
             // Load saved progress
             const savedProgress = this.loadPlayerProgress();
+            console.log('Loaded saved progress:', savedProgress);  // Debug log
             
             // Create a mock socket for single player
             const mockSocket = {
@@ -583,10 +584,7 @@ class Game {
                     this.worker?.postMessage({
                         type: 'socketEvent',
                         event,
-                        data: {
-                            ...data,
-                            savedProgress // Pass saved progress to worker
-                        }
+                        data
                     });
                 },
                 on: (event: string, handler: Function) => {
@@ -601,7 +599,7 @@ class Game {
             // Use mock socket instead of real socket
             this.socket = mockSocket as any;
 
-            // Set up socket event handlers
+            // Set up socket event handlers first
             this.setupSocketListeners();
 
             // Handle messages from worker
@@ -613,21 +611,16 @@ class Game {
                     const handler = this.socketHandlers.get(socketEvent);
                     if (handler) {
                         handler(data);
-                        
-                        // Save progress when receiving certain events
-                        if (socketEvent === 'xpGained' || socketEvent === 'levelUp') {
-                            const player = this.players.get(data.playerId);
-                            if (player) {
-                                this.savePlayerProgress(player);
-                            }
-                        }
                     }
                 }
             };
 
-            // Initialize the game
-            console.log('Sending init message to worker');
-            this.worker.postMessage({ type: 'init' });
+            // Initialize the game with saved progress
+            console.log('Sending init message to worker with saved progress');
+            this.worker.postMessage({ 
+                type: 'init',
+                savedProgress  // Pass the saved progress directly here
+            });
         } catch (error) {
             console.error('Error initializing worker:', error);
         }
@@ -1326,6 +1319,14 @@ class Game {
     }
 
     public cleanup() {
+        // Save progress before cleanup if in single player mode
+        if (this.isSinglePlayer && this.socket?.id) {  // Add null check for socket.id
+            const player = this.players.get(this.socket.id);
+            if (player) {
+                this.savePlayerProgress(player);
+            }
+        }
+
         // Stop the game loop
         if (this.gameLoopId) {
             cancelAnimationFrame(this.gameLoopId);
@@ -1351,6 +1352,17 @@ class Game {
 
         // Clear the canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Hide game canvas and show title screen
+        const titleScreen = document.getElementById('titleScreen');
+        const canvas = document.getElementById('gameCanvas');
+        const exitButton = document.getElementById('exitButton');
+        
+        if (titleScreen && canvas && exitButton) {
+            titleScreen.style.display = 'flex';
+            canvas.style.display = 'none';
+            exitButton.style.display = 'none';
+        }
     }
 
     private loadPlayerProgress(): { level: number; xp: number; maxHealth: number; damage: number } {

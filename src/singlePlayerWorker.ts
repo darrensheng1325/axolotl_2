@@ -287,7 +287,7 @@ const socket = new MockSocket();
 
 // Initialize game state
 function initializeGame(messageData?: { savedProgress?: any }) {
-    console.log('Initializing game state in worker');
+    console.log('Initializing game state in worker', messageData);  // Debug log
     
     const savedProgress = messageData?.savedProgress || {
         level: 1,
@@ -295,7 +295,10 @@ function initializeGame(messageData?: { savedProgress?: any }) {
         maxHealth: PLAYER_MAX_HEALTH,
         damage: PLAYER_DAMAGE
     };
+
+    console.log('Using saved progress:', savedProgress);  // Debug log
     
+    // Initialize player with saved progress
     players[socket.id] = {
         id: socket.id,
         x: WORLD_WIDTH / 2,
@@ -356,12 +359,13 @@ function initializeGame(messageData?: { savedProgress?: any }) {
 
 // Handle messages from main thread
 self.onmessage = (event) => {
-    const { type, event: socketEvent, data } = event.data;
-    console.log('Worker received message:', type, data);
+    const { type, event: socketEvent, data, savedProgress } = event.data;
+    console.log('Worker received message:', type, { data, savedProgress });  // Debug log
     
     switch (type) {
         case 'init':
-            initializeGame(data);
+            // Pass savedProgress directly from the event.data
+            initializeGame({ savedProgress: event.data.savedProgress });
             break;
 
         case 'socketEvent':
