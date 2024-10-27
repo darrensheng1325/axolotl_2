@@ -13,6 +13,11 @@ interface Player {
     isInvulnerable?: boolean;
     knockbackX?: number;
     knockbackY?: number;
+    level: number;
+    xp: number;
+    xpToNextLevel: number;
+    maxHealth: number;
+    damage: number;
 }
 
 interface Enemy {
@@ -85,6 +90,69 @@ const enemies: Enemy[] = [];
 const obstacles: Obstacle[] = [];
 const items: Item[] = [];
 const dots: Dot[] = [];
+
+// Add XP-related constants to the worker
+const BASE_XP_REQUIREMENT = 100;
+const XP_MULTIPLIER = 1.5;
+const MAX_LEVEL = 50;
+const HEALTH_PER_LEVEL = 10;
+const DAMAGE_PER_LEVEL = 2;
+
+function calculateXPRequirement(level: number): number {
+    return Math.floor(BASE_XP_REQUIREMENT * Math.pow(XP_MULTIPLIER, level - 1));
+}
+
+function getXPFromEnemy(enemy: Enemy): number {
+    const tierMultipliers: Record<Enemy['tier'], number> = {
+        common: 10,
+        uncommon: 20,
+        rare: 40,
+        epic: 80,
+        legendary: 160,
+        mythic: 320
+    };
+    return tierMultipliers[enemy.tier];
+}
+
+function addXPToPlayer(player: Player, xp: number): void {
+    if (player.level >= MAX_LEVEL) return;
+
+    player.xp += xp;
+    while (player.xp >= player.xpToNextLevel && player.level < MAX_LEVEL) {
+        player.xp -= player.xpToNextLevel;
+        player.level++;
+        player.xpToNextLevel = calculateXPRequirement(player.level);
+        handleLevelUp(player);
+    }
+
+    if (player.level >= MAX_LEVEL) {
+        player.xp = 0;
+        player.xpToNextLevel = 0;
+    }
+
+    socket.emit('xpGained', {
+        playerId: player.id,
+        xp: xp,
+        totalXp: player.xp,
+        level: player.level,
+        xpToNextLevel: player.xpToNextLevel,
+        maxHealth: player.maxHealth,
+        damage: player.damage
+    });
+}
+
+function handleLevelUp(player: Player): void {
+    player.maxHealth += HEALTH_PER_LEVEL;
+    player.health = player.maxHealth;
+    player.damage += DAMAGE_PER_LEVEL;
+
+    socket.emit('levelUp', {
+        playerId: player.id,
+        level: player.level,
+        maxHealth: player.maxHealth,
+        damage: player.damage
+    });
+}
 
 function createEnemy(): Enemy {
     const tierRoll = Math.random();
@@ -218,21 +286,32 @@ const mockIo = {
 const socket = new MockSocket();
 
 // Initialize game state
-function initializeGame() {
+function initializeGame(messageData?: { savedProgress?: any }) {
     console.log('Initializing game state in worker');
     
-    // Create player
+    const savedProgress = messageData?.savedProgress || {
+        level: 1,
+        xp: 0,
+        maxHealth: PLAYER_MAX_HEALTH,
+        damage: PLAYER_DAMAGE
+    };
+    
     players[socket.id] = {
         id: socket.id,
-        x: WORLD_WIDTH / 2,  // Start in the middle
+        x: WORLD_WIDTH / 2,
         y: WORLD_HEIGHT / 2,
         angle: 0,
         score: 0,
         velocityX: 0,
         velocityY: 0,
-        health: PLAYER_MAX_HEALTH,
+        health: savedProgress.maxHealth,
+        maxHealth: savedProgress.maxHealth,
+        damage: savedProgress.damage,
         inventory: [],
-        isInvulnerable: true
+        isInvulnerable: true,
+        level: savedProgress.level,
+        xp: savedProgress.xp,
+        xpToNextLevel: calculateXPRequirement(savedProgress.level)
     };
 
     // Remove initial invulnerability after the specified time
@@ -282,7 +361,7 @@ self.onmessage = (event) => {
     
     switch (type) {
         case 'init':
-            initializeGame();
+            initializeGame(data);
             break;
 
         case 'socketEvent':

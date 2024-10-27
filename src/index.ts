@@ -14,6 +14,11 @@ interface Player {
     velocityY: number;
     health: number; // Add health property
     inventory: Item[];
+    level: number;
+    xp: number;
+    xpToNextLevel: number;
+    maxHealth: number;
+    damage: number;
 }
 
 interface Dot {
@@ -243,7 +248,12 @@ function initializeGame() {
         velocityY: 0,
         health: PLAYER_MAX_HEALTH,
         inventory: [],
-        isInvulnerable: true
+        isInvulnerable: true,
+        level: 1,
+        xp: 0,
+        xpToNextLevel: 100,
+        maxHealth: PLAYER_MAX_HEALTH,
+        damage: PLAYER_DAMAGE
     };
 
     setTimeout(() => {
@@ -499,6 +509,21 @@ class Game {
     private worker: Worker | null = null;
     private gameLoopId: number | null = null;
     private socketHandlers: Map<string, Function> = new Map();
+    private readonly BASE_XP_REQUIREMENT = 100;
+    private readonly XP_MULTIPLIER = 1.5;
+    private readonly MAX_LEVEL = 50;
+    private readonly HEALTH_PER_LEVEL = 10;
+    private readonly DAMAGE_PER_LEVEL = 2;
+    // Add this property to store floating texts
+    private floatingTexts: Array<{
+        x: number;
+        y: number;
+        text: string;
+        color: string;
+        fontSize: number;
+        alpha: number;
+        lifetime: number;
+    }> = [];
 
     constructor(isSinglePlayer: boolean = false) {
         console.log('Game constructor called');
@@ -544,15 +569,11 @@ class Game {
     private initSinglePlayerMode() {
         console.log('Initializing single player mode');
         try {
-            // Create a blob URL from the worker code string
-            const blob = new Blob([workerCode], { type: 'application/javascript' });
-            const workerUrl = URL.createObjectURL(blob);
+            // Create the worker using the separate file
+            this.worker = new Worker(new URL('./singlePlayerWorker.ts', import.meta.url));
             
-            // Create the worker using the blob URL
-            this.worker = new Worker(workerUrl);
-            
-            // Clean up the blob URL
-            URL.revokeObjectURL(workerUrl);
+            // Load saved progress
+            const savedProgress = this.loadPlayerProgress();
             
             // Create a mock socket for single player
             const mockSocket = {
@@ -562,7 +583,10 @@ class Game {
                     this.worker?.postMessage({
                         type: 'socketEvent',
                         event,
-                        data
+                        data: {
+                            ...data,
+                            savedProgress // Pass saved progress to worker
+                        }
                     });
                 },
                 on: (event: string, handler: Function) => {
@@ -577,7 +601,7 @@ class Game {
             // Use mock socket instead of real socket
             this.socket = mockSocket as any;
 
-            // Set up socket event handlers first
+            // Set up socket event handlers
             this.setupSocketListeners();
 
             // Handle messages from worker
@@ -586,11 +610,17 @@ class Game {
                 console.log('Received message from worker:', type, socketEvent, data);
                 
                 if (type === 'socketEvent') {
-                    // Call the appropriate socket event handler
                     const handler = this.socketHandlers.get(socketEvent);
                     if (handler) {
-                        console.log('Calling handler for event:', socketEvent);
                         handler(data);
+                        
+                        // Save progress when receiving certain events
+                        if (socketEvent === 'xpGained' || socketEvent === 'levelUp') {
+                            const player = this.players.get(data.playerId);
+                            if (player) {
+                                this.savePlayerProgress(player);
+                            }
+                        }
                     }
                 }
             };
@@ -714,6 +744,49 @@ class Game {
                 if (player) {
                     player.inventory = inventory;
                 }
+            }
+        });
+
+        this.socket.on('xpGained', (data: { 
+            playerId: string; 
+            xp: number; 
+            totalXp: number; 
+            level: number; 
+            xpToNextLevel: number;
+            maxHealth: number;
+            damage: number;
+        }) => {
+            const player = this.players.get(data.playerId);
+            if (player) {
+                player.xp = data.totalXp;
+                player.level = data.level;
+                player.xpToNextLevel = data.xpToNextLevel;
+                player.maxHealth = data.maxHealth;
+                player.damage = data.damage;
+                this.showFloatingText(player.x, player.y - 20, '+' + data.xp + ' XP', '#32CD32', 16);
+                this.savePlayerProgress(player);
+            }
+        });
+
+        this.socket.on('levelUp', (data: {
+            playerId: string;
+            level: number;
+            maxHealth: number;
+            damage: number;
+        }) => {
+            const player = this.players.get(data.playerId);
+            if (player) {
+                player.level = data.level;
+                player.maxHealth = data.maxHealth;
+                player.damage = data.damage;
+                this.showFloatingText(
+                    player.x, 
+                    player.y - 30, 
+                    'Level Up! Level ' + data.level, 
+                    '#FFD700', 
+                    24
+                );
+                this.savePlayerProgress(player);
             }
         });
     }
@@ -1114,6 +1187,23 @@ class Game {
                 this.ctx.fillRect(player.x - 25, player.y - 40, 50, 5);
                 this.ctx.fillStyle = 'green';
                 this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / this.PLAYER_MAX_HEALTH), 5);
+
+                // Draw XP bar
+                if (player.level < this.MAX_LEVEL) {
+                    const xpBarWidth = 50;
+                    const xpBarHeight = 3;
+                    const xpPercentage = player.xp / player.xpToNextLevel;
+                    
+                    this.ctx.fillStyle = '#4169E1';
+                    this.ctx.fillRect(player.x - 25, player.y - 45, xpBarWidth, xpBarHeight);
+                    this.ctx.fillStyle = '#00FFFF';
+                    this.ctx.fillRect(player.x - 25, player.y - 45, xpBarWidth * xpPercentage, xpBarHeight);
+                }
+
+                // Draw level
+                this.ctx.fillStyle = '#FFD700';
+                this.ctx.font = '12px Arial';
+                this.ctx.fillText('Lv.' + player.level, player.x - 25, player.y - 50);
             });
 
             // Draw enemies
@@ -1196,6 +1286,22 @@ class Game {
             this.renderInventoryMenu();
         }
 
+        // Draw floating texts
+        this.floatingTexts = this.floatingTexts.filter(text => {
+            text.y -= 1;
+            text.alpha -= 1 / text.lifetime;
+            
+            if (text.alpha <= 0) return false;
+            
+            this.ctx.globalAlpha = text.alpha;
+            this.ctx.fillStyle = text.color;
+            this.ctx.font = text.fontSize + 'px Arial';
+            this.ctx.fillText(text.text, text.x, text.y);
+            this.ctx.globalAlpha = 1;
+            
+            return true;
+        });
+
         this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
     }
 
@@ -1244,5 +1350,44 @@ class Game {
         // Clear the canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
-}
 
+    private loadPlayerProgress(): { level: number; xp: number; maxHealth: number; damage: number } {
+        const savedProgress = localStorage.getItem('playerProgress');
+        if (savedProgress) {
+            return JSON.parse(savedProgress);
+        }
+        return {
+            level: 1,
+            xp: 0,
+            maxHealth: this.PLAYER_MAX_HEALTH,
+            damage: this.PLAYER_DAMAGE
+        };
+    }
+
+    private savePlayerProgress(player: Player) {
+        const progress = {
+            level: player.level,
+            xp: player.xp,
+            maxHealth: player.maxHealth,
+            damage: player.damage
+        };
+        localStorage.setItem('playerProgress', JSON.stringify(progress));
+    }
+
+    private calculateXPRequirement(level: number): number {
+        return Math.floor(this.BASE_XP_REQUIREMENT * Math.pow(this.XP_MULTIPLIER, level - 1));
+    }
+
+    // Add the showFloatingText method
+    private showFloatingText(x: number, y: number, text: string, color: string, fontSize: number) {
+        this.floatingTexts.push({
+            x,
+            y,
+            text,
+            color,
+            fontSize,
+            alpha: 1,
+            lifetime: 60 // frames
+        });
+    }
+}
