@@ -9,6 +9,8 @@ interface Player {
     velocityX: number;
     velocityY: number;
     health: number;
+    maxHealth: number;
+    damage: number;
     inventory: Item[];
     isInvulnerable?: boolean;
     knockbackX?: number;
@@ -16,8 +18,6 @@ interface Player {
     level: number;
     xp: number;
     xpToNextLevel: number;
-    maxHealth: number;
-    damage: number;
 }
 
 interface Enemy {
@@ -388,7 +388,6 @@ self.onmessage = (event) => {
 
                         // Check collision with enemies first
                         for (const enemy of enemies) {
-                            // Use rectangle collision like the server
                             if (
                                 newX < enemy.x + ENEMY_SIZE &&
                                 newX + PLAYER_SIZE > enemy.x &&
@@ -402,7 +401,7 @@ self.onmessage = (event) => {
                                     socket.emit('playerDamaged', { playerId: player.id, health: player.health });
 
                                     // Player damages enemy
-                                    enemy.health -= PLAYER_DAMAGE;
+                                    enemy.health -= player.damage;  // Use player.damage instead of PLAYER_DAMAGE
                                     socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
 
                                     // Calculate knockback direction
@@ -424,6 +423,11 @@ self.onmessage = (event) => {
                                     if (enemy.health <= 0) {
                                         const index = enemies.findIndex(e => e.id === enemy.id);
                                         if (index !== -1) {
+                                            // Award XP before removing the enemy
+                                            const xpGained = getXPFromEnemy(enemy);
+                                            addXPToPlayer(player, xpGained);
+                                            
+                                            // Remove the dead enemy and create a new one
                                             enemies.splice(index, 1);
                                             socket.emit('enemyDestroyed', enemy.id);
                                             enemies.push(createEnemy());
@@ -435,7 +439,7 @@ self.onmessage = (event) => {
                                         respawnPlayer(player);
                                         socket.emit('playerDied', player.id);
                                         socket.emit('playerRespawned', player);
-                                        return; // Exit early if player dies
+                                        return;
                                     }
                                 }
                                 break;

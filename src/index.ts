@@ -346,7 +346,7 @@ self.onmessage = (event) => {
                                     player.health -= enemy.damage;
                                     socket.emit('playerDamaged', { playerId: player.id, health: player.health });
 
-                                    enemy.health -= PLAYER_DAMAGE;
+                                    enemy.health -= player.damage;  // Use player.damage instead of PLAYER_DAMAGE
                                     socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
 
                                     const dx = enemy.x - newX;
@@ -756,6 +756,7 @@ class Game {
             maxHealth: number;
             damage: number;
         }) => {
+            console.log('XP gained:', data);  // Add logging
             const player = this.players.get(data.playerId);
             if (player) {
                 player.xp = data.totalXp;
@@ -774,6 +775,7 @@ class Game {
             maxHealth: number;
             damage: number;
         }) => {
+            console.log('Level up:', data);  // Add logging
             const player = this.players.get(data.playerId);
             if (player) {
                 player.level = data.level;
