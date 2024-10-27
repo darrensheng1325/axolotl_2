@@ -288,16 +288,41 @@ function initializeGame() {
     socket.emit('playerMoved', players[socket.id]);
 }
 
-function respawnPlayer(player) {
-    player.health = PLAYER_MAX_HEALTH;
+// Add this function to handle level loss
+function loseLevel(player: Player): void {
+    if (player.level > 1) {
+        player.level--;
+        player.maxHealth -= HEALTH_PER_LEVEL;
+        player.damage -= DAMAGE_PER_LEVEL;
+        player.xp = 0;
+        player.xpToNextLevel = calculateXPRequirement(player.level);
+    }
+}
+
+// Update the respawnPlayer function
+function respawnPlayer(player: Player) {
+    // Lose a level on death
+    loseLevel(player);
+    
+    // Reset position and stats
+    player.health = player.maxHealth;
     player.x = Math.random() * WORLD_WIDTH;
     player.y = Math.random() * WORLD_HEIGHT;
     player.score = Math.max(0, player.score - 10);
     player.inventory = [];
     player.isInvulnerable = true;
 
-    self.postMessage({ type: 'playerDied', playerId: player.id });
-    self.postMessage({ type: 'playerRespawned', player });
+    // Notify about level loss and respawn
+    socket.emit('playerLostLevel', {
+        playerId: player.id,
+        level: player.level,
+        maxHealth: player.maxHealth,
+        damage: player.damage,
+        xp: player.xp,
+        xpToNextLevel: player.xpToNextLevel
+    });
+
+    socket.emit('playerRespawned', player);
 
     setTimeout(() => {
         player.isInvulnerable = false;
@@ -467,13 +492,14 @@ class Game {
     private dots: Dot[] = [];
     private readonly DOT_SIZE = 5;
     private readonly DOT_COUNT = 20;
-    private readonly PLAYER_ACCELERATION = 1.5; // Increased from 0.5 to 1.5
-    private readonly MAX_SPEED = 20; // Increased from 15 to 20
-    private readonly FRICTION = 0.98;
+    // Reduce these values for slower movement
+    private readonly PLAYER_ACCELERATION = 0.5;  // Reduced from 1.5 to 0.5
+    private readonly MAX_SPEED = 8;             // Reduced from 20 to 8
+    private readonly FRICTION = 0.95;           // Increased friction from 0.98 to 0.95 for quicker deceleration
     private cameraX = 0;
     private cameraY = 0;
-    private readonly WORLD_WIDTH = 2000;
-    private readonly WORLD_HEIGHT = 2000;
+    private readonly WORLD_WIDTH = 10000;  // Increased from 2000 to 10000
+    private readonly WORLD_HEIGHT = 2000;  // Keep height the same
     private keysPressed: Set<string> = new Set();
     private enemies: Map<string, Enemy> = new Map();
     private octopusSprite: HTMLImageElement;
@@ -524,6 +550,21 @@ class Game {
         alpha: number;
         lifetime: number;
     }> = [];
+    // Add enemy size multipliers as a class property
+    private readonly ENEMY_SIZE_MULTIPLIERS: Record<Enemy['tier'], number> = {
+        common: 1.0,
+        uncommon: 1.2,
+        rare: 1.4,
+        epic: 1.6,
+        legendary: 1.8,
+        mythic: 2.0
+    };
+    // Add property to track if player is dead
+    private isPlayerDead: boolean = false;
+    // Add minimap properties
+    private readonly MINIMAP_WIDTH = 200;
+    private readonly MINIMAP_HEIGHT = 40;
+    private readonly MINIMAP_PADDING = 10;
 
     constructor(isSinglePlayer: boolean = false) {
         console.log('Game constructor called');
@@ -564,6 +605,14 @@ class Game {
         } else {
             this.initMultiPlayerMode();
         }
+
+        // Add respawn button listener
+        const respawnButton = document.getElementById('respawnButton');
+        respawnButton?.addEventListener('click', () => {
+            if (this.isPlayerDead) {
+                this.socket.emit('requestRespawn');
+            }
+        });
     }
 
     private initSinglePlayerMode() {
@@ -784,6 +833,63 @@ class Game {
                 this.savePlayerProgress(player);
             }
         });
+
+        this.socket.on('playerLostLevel', (data: {
+            playerId: string;
+            level: number;
+            maxHealth: number;
+            damage: number;
+            xp: number;
+            xpToNextLevel: number;
+        }) => {
+            console.log('Player lost level:', data);
+            const player = this.players.get(data.playerId);
+            if (player) {
+                player.level = data.level;
+                player.maxHealth = data.maxHealth;
+                player.damage = data.damage;
+                player.xp = data.xp;
+                player.xpToNextLevel = data.xpToNextLevel;
+                
+                // Show level loss message
+                this.showFloatingText(
+                    player.x, 
+                    player.y - 30, 
+                    'Level Lost! Level ' + data.level, 
+                    '#FF0000', 
+                    24
+                );
+                
+                // Save the new progress
+                this.savePlayerProgress(player);
+            }
+        });
+
+        this.socket.on('playerRespawned', (player: Player) => {
+            const existingPlayer = this.players.get(player.id);
+            if (existingPlayer) {
+                Object.assign(existingPlayer, player);
+                if (player.id === this.socket.id) {
+                    this.isPlayerDead = false;
+                    this.hideDeathScreen();
+                }
+                // Show respawn message
+                this.showFloatingText(
+                    player.x,
+                    player.y - 50,
+                    'Respawned!',
+                    '#FFFFFF',
+                    20
+                );
+            }
+        });
+
+        this.socket.on('playerDied', (playerId: string) => {
+            if (playerId === this.socket.id) {
+                this.isPlayerDead = true;
+                this.showDeathScreen();
+            }
+        });
     }
 
     private setupEventListeners() {
@@ -896,10 +1002,11 @@ class Game {
     }
 
     private updateCamera(player: Player) {
+        // Center camera on player
         this.cameraX = player.x - this.canvas.width / 2;
         this.cameraY = player.y - this.canvas.height / 2;
 
-        // Clamp camera position to world bounds
+        // Clamp camera to world bounds
         this.cameraX = Math.max(0, Math.min(this.WORLD_WIDTH - this.canvas.width, this.cameraX));
         this.cameraY = Math.max(0, Math.min(this.WORLD_HEIGHT - this.canvas.height, this.cameraY));
     }
@@ -1097,52 +1204,18 @@ class Game {
 
     private gameLoop() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Draw ocean background
         this.ctx.fillStyle = '#00FFFF';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         if (!this.isInventoryOpen) {
-            // Get current player
-            const currentPlayer = this.isSinglePlayer ? 
-                this.players.get('player1') : 
-                this.players.get(this.socket?.id || '');
-
-            if (currentPlayer) {
-                // Always update position based on velocity
-                const newX = currentPlayer.x + currentPlayer.velocityX;
-                const newY = currentPlayer.y + currentPlayer.velocityY;
-
-                // Check world bounds
-                currentPlayer.x = Math.max(0, Math.min(this.WORLD_WIDTH, newX));
-                currentPlayer.y = Math.max(0, Math.min(this.WORLD_HEIGHT, newY));
-
-                // Apply friction
-                currentPlayer.velocityX *= this.FRICTION;
-                currentPlayer.velocityY *= this.FRICTION;
-
-                // Update camera
-                this.updateCamera(currentPlayer);
-
-                // Send update to server/worker
-                if (this.isSinglePlayer) {
-                    this.worker?.postMessage({
-                        type: 'socketEvent',
-                        event: 'playerMovement',
-                        data: {
-                            x: currentPlayer.x,
-                            y: currentPlayer.y,
-                            angle: currentPlayer.angle,
-                            velocityX: currentPlayer.velocityX,
-                            velocityY: currentPlayer.velocityY
-                        }
-                    });
-                } else {
-                    this.socket.emit('playerMovement', {
-                        x: currentPlayer.x,
-                        y: currentPlayer.y,
-                        angle: currentPlayer.angle,
-                        velocityX: currentPlayer.velocityX,
-                        velocityY: currentPlayer.velocityY
-                    });
+            // Get current player for camera
+            const currentSocketId = this.socket?.id;  // Changed variable name
+            if (currentSocketId) {
+                const currentPlayer = this.players.get(currentSocketId);
+                if (currentPlayer) {
+                    this.updateCamera(currentPlayer);
                 }
             }
 
@@ -1152,6 +1225,30 @@ class Game {
             // Draw world bounds
             this.ctx.strokeStyle = 'black';
             this.ctx.strokeRect(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT);
+
+            // Draw zone indicators
+            const zones = [
+                { name: 'Common', end: 2000, color: 'rgba(128, 128, 128, 0.2)' },
+                { name: 'Uncommon', end: 4000, color: 'rgba(0, 128, 0, 0.2)' },
+                { name: 'Rare', end: 6000, color: 'rgba(0, 0, 255, 0.2)' },
+                { name: 'Epic', end: 8000, color: 'rgba(128, 0, 128, 0.2)' },
+                { name: 'Legendary', end: 9000, color: 'rgba(255, 165, 0, 0.2)' },
+                { name: 'Mythic', end: this.WORLD_WIDTH, color: 'rgba(255, 0, 0, 0.2)' }
+            ];
+
+            let start = 0;
+            zones.forEach(zone => {
+                // Draw zone background
+                this.ctx.fillStyle = zone.color;
+                this.ctx.fillRect(start, 0, zone.end - start, this.WORLD_HEIGHT);
+                
+                // Draw zone name
+                this.ctx.fillStyle = 'black';
+                this.ctx.font = '20px Arial';
+                this.ctx.fillText(zone.name, start + 10, 30);
+                
+                start = zone.end;
+            });
 
             // Draw dots
             this.ctx.fillStyle = 'yellow';
@@ -1203,6 +1300,9 @@ class Game {
 
             // Draw enemies
             this.enemies.forEach(enemy => {
+                const sizeMultiplier = this.ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+                const enemySize = 40 * sizeMultiplier;  // Base size * multiplier
+                
                 this.ctx.save();
                 this.ctx.translate(enemy.x, enemy.y);
                 this.ctx.rotate(enemy.angle);
@@ -1210,26 +1310,31 @@ class Game {
                 // Draw enemy with color based on tier
                 this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
                 this.ctx.beginPath();
-                this.ctx.arc(0, 0, 20, 0, Math.PI * 2);
+                this.ctx.arc(0, 0, enemySize/2, 0, Math.PI * 2);
                 this.ctx.fill();
 
                 if (enemy.type === 'octopus') {
-                    this.ctx.drawImage(this.octopusSprite, -20, -20, 40, 40);
+                    this.ctx.drawImage(this.octopusSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
                 } else {
-                    this.ctx.drawImage(this.fishSprite, -20, -20, 40, 40);
+                    this.ctx.drawImage(this.fishSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
                 }
                 
                 this.ctx.restore();
 
-                // Draw health bar and tier indicator
+                // Draw health bar and tier indicator - adjust position based on size
                 const maxHealth = this.ENEMY_MAX_HEALTH[enemy.tier];
+                const healthBarWidth = 50 * sizeMultiplier;
+                
+                // Health bar
                 this.ctx.fillStyle = 'red';
-                this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50, 5);
+                this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth, 5);
                 this.ctx.fillStyle = 'green';
-                this.ctx.fillRect(enemy.x - 25, enemy.y - 30, 50 * (enemy.health / maxHealth), 5);
+                this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth * (enemy.health / maxHealth), 5);
+                
+                // Tier text
                 this.ctx.fillStyle = 'white';
-                this.ctx.font = '12px Arial';
-                this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - 25, enemy.y + 35);
+                this.ctx.font = (12 * sizeMultiplier) + 'px Arial';
+                this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - healthBarWidth/2, enemy.y + enemySize/2 + 15);
             });
 
             // Draw obstacles
@@ -1265,9 +1370,9 @@ class Game {
             });
 
             // Draw player inventory
-            const socketId = this.socket.id;
-            if (socketId) {
-                const player = this.players.get(socketId);
+            const playerSocketId = this.socket.id;  // Changed variable name
+            if (playerSocketId) {
+                const player = this.players.get(playerSocketId);
                 if (player) {
                     player.inventory.forEach((item, index) => {
                         const sprite = this.itemSprites[item.type];
@@ -1277,6 +1382,9 @@ class Game {
             }
 
             this.ctx.restore();
+
+            // Draw minimap (after restoring context)
+            this.drawMinimap();
         } else {
             this.renderInventoryMenu();
         }
@@ -1296,6 +1404,12 @@ class Game {
             
             return true;
         });
+
+        // Don't process player input if dead
+        if (!this.isPlayerDead) {
+            // Process player movement and input
+            this.updatePlayerVelocity();
+        }
 
         this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
     }
@@ -1403,5 +1517,65 @@ class Game {
             alpha: 1,
             lifetime: 60 // frames
         });
+    }
+
+    private showDeathScreen() {
+        const deathScreen = document.getElementById('deathScreen');
+        if (deathScreen) {
+            deathScreen.style.display = 'flex';
+        }
+    }
+
+    private hideDeathScreen() {
+        const deathScreen = document.getElementById('deathScreen');
+        if (deathScreen) {
+            deathScreen.style.display = 'none';
+        }
+    }
+
+    // Add minimap drawing
+    private drawMinimap() {
+        const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
+        const minimapY = this.MINIMAP_PADDING;
+
+        // Draw minimap background
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
+
+        // Draw zones on minimap
+        const zones = [
+            { color: '#808080' }, // Common
+            { color: '#008000' }, // Uncommon
+            { color: '#0000FF' }, // Rare
+            { color: '#800080' }, // Epic
+            { color: '#FFA500' }, // Legendary
+            { color: '#FF0000' }  // Mythic
+        ];
+
+        zones.forEach((zone, index) => {
+            const zoneWidth = (this.MINIMAP_WIDTH / 6);
+            this.ctx.fillStyle = zone.color;
+            this.ctx.fillRect(
+                minimapX + index * zoneWidth,
+                minimapY,
+                zoneWidth,
+                this.MINIMAP_HEIGHT
+            );
+        });
+
+        // Draw player position on minimap
+        const minimapSocketId = this.socket?.id;  // Changed variable name
+        if (minimapSocketId) {
+            const player = this.players.get(minimapSocketId);
+            if (player) {
+                const playerMinimapX = minimapX + (player.x / this.WORLD_WIDTH) * this.MINIMAP_WIDTH;
+                const playerMinimapY = minimapY + (player.y / this.WORLD_HEIGHT) * this.MINIMAP_HEIGHT;
+                
+                this.ctx.fillStyle = 'yellow';
+                this.ctx.beginPath();
+                this.ctx.arc(playerMinimapX, playerMinimapY, 2, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+        }
     }
 }

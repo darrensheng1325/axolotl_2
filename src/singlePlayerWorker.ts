@@ -58,10 +58,22 @@ interface Dot {
 }
 
 // Add constants at the top
-const WORLD_WIDTH = 2000;
-const WORLD_HEIGHT = 2000;
-const ENEMY_COUNT = 10;
-const OBSTACLE_COUNT = 20;
+const WORLD_WIDTH = 10000;  // Increased from 2000 to 10000
+const WORLD_HEIGHT = 2000;  // Keep height the same
+
+// Update enemy count for the larger map
+const ENEMY_COUNT = 50;  // Increased from 10 to 50
+
+// Add zone boundaries for different tier enemies
+const ZONE_BOUNDARIES = {
+    common: { start: 0, end: 2000 },
+    uncommon: { start: 2000, end: 4000 },
+    rare: { start: 4000, end: 6000 },
+    epic: { start: 6000, end: 8000 },
+    legendary: { start: 8000, end: 9000 },
+    mythic: { start: 9000, end: WORLD_WIDTH }
+};
+
 const ENEMY_CORAL_PROBABILITY = 0.3;
 const ENEMY_CORAL_HEALTH = 50;
 const ENEMY_CORAL_DAMAGE = 5;
@@ -97,6 +109,16 @@ const XP_MULTIPLIER = 1.5;
 const MAX_LEVEL = 50;
 const HEALTH_PER_LEVEL = 10;
 const DAMAGE_PER_LEVEL = 2;
+
+// Add enemy size multipliers constant
+const ENEMY_SIZE_MULTIPLIERS = {
+    common: 1.0,
+    uncommon: 1.2,
+    rare: 1.4,
+    epic: 1.6,
+    legendary: 1.8,
+    mythic: 2.0
+};
 
 function calculateXPRequirement(level: number): number {
     return Math.floor(BASE_XP_REQUIREMENT * Math.pow(XP_MULTIPLIER, level - 1));
@@ -154,15 +176,16 @@ function handleLevelUp(player: Player): void {
     });
 }
 
+// Update createEnemy to use position-based tier selection
 function createEnemy(): Enemy {
-    const tierRoll = Math.random();
-    let tier: keyof typeof ENEMY_TIERS = 'common';
-    let cumulativeProbability = 0;
-
-    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
-        cumulativeProbability += data.probability;
-        if (tierRoll < cumulativeProbability) {
-            tier = t as keyof typeof ENEMY_TIERS;
+    // First, decide the x position
+    const x = Math.random() * WORLD_WIDTH;
+    
+    // Determine tier based on x position
+    let tier: Enemy['tier'] = 'common';
+    for (const [t, zone] of Object.entries(ZONE_BOUNDARIES)) {
+        if (x >= zone.start && x < zone.end) {
+            tier = t as Enemy['tier'];
             break;
         }
     }
@@ -173,7 +196,7 @@ function createEnemy(): Enemy {
         id: Math.random().toString(36).substr(2, 9),
         type: Math.random() < 0.5 ? 'octopus' : 'fish',
         tier,
-        x: Math.random() * WORLD_WIDTH,
+        x: x,  // Use the determined x position
         y: Math.random() * WORLD_HEIGHT,
         angle: Math.random() * Math.PI * 2,
         health: tierData.health,
@@ -207,9 +230,13 @@ function createItem(): Item {
     };
 }
 
+// Update moveEnemies to keep enemies in their zones
 function moveEnemies() {
     enemies.forEach(enemy => {
-        // Apply knockback recovery
+        // Store original x position
+        const originalX = enemy.x;
+
+        // Apply existing movement logic
         if (enemy.knockbackX) {
             enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
             enemy.x += enemy.knockbackX;
@@ -221,7 +248,6 @@ function moveEnemies() {
             if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
         }
 
-        // Regular movement
         if (enemy.type === 'octopus') {
             enemy.x += (Math.random() * 4 - 2) * enemy.speed;
             enemy.y += (Math.random() * 4 - 2) * enemy.speed;
@@ -230,7 +256,17 @@ function moveEnemies() {
             enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
         }
 
-        enemy.x = (enemy.x + WORLD_WIDTH) % WORLD_WIDTH;
+        // Keep enemy within its zone boundaries
+        const zone = ZONE_BOUNDARIES[enemy.tier];
+        if (enemy.x < zone.start || enemy.x >= zone.end) {
+            // If enemy would leave its zone, reverse direction or reset position
+            if (enemy.type === 'fish') {
+                enemy.angle = Math.PI - enemy.angle; // Reverse direction
+            }
+            enemy.x = Math.max(zone.start, Math.min(zone.end - 1, enemy.x));
+        }
+
+        // Wrap around only for Y axis
         enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
 
         if (enemy.type === 'fish' && Math.random() < 0.02) {
@@ -287,7 +323,7 @@ const socket = new MockSocket();
 
 // Initialize game state
 function initializeGame(messageData?: { savedProgress?: any }) {
-    console.log('Initializing game state in worker', messageData);  // Debug log
+    console.log('Initializing game state in worker', messageData);
     
     const savedProgress = messageData?.savedProgress || {
         level: 1,
@@ -296,12 +332,12 @@ function initializeGame(messageData?: { savedProgress?: any }) {
         damage: PLAYER_DAMAGE
     };
 
-    console.log('Using saved progress:', savedProgress);  // Debug log
+    console.log('Using saved progress:', savedProgress);
     
-    // Initialize player with saved progress
+    // Initialize player at the left side of the map
     players[socket.id] = {
         id: socket.id,
-        x: WORLD_WIDTH / 2,
+        x: 200,  // Start near the left edge
         y: WORLD_HEIGHT / 2,
         angle: 0,
         score: 0,
@@ -330,7 +366,7 @@ function initializeGame(messageData?: { savedProgress?: any }) {
     }
 
     // Create obstacles
-    for (let i = 0; i < OBSTACLE_COUNT; i++) {
+    for (let i = 0; i < 20; i++) {
         obstacles.push(createObstacle());
     }
 
@@ -392,10 +428,12 @@ self.onmessage = (event) => {
 
                         // Check collision with enemies first
                         for (const enemy of enemies) {
+                            const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+                            
                             if (
-                                newX < enemy.x + ENEMY_SIZE &&
+                                newX < enemy.x + enemySize &&
                                 newX + PLAYER_SIZE > enemy.x &&
-                                newY < enemy.y + ENEMY_SIZE &&
+                                newY < enemy.y + enemySize &&
                                 newY + PLAYER_SIZE > enemy.y
                             ) {
                                 collision = true;
@@ -519,6 +557,13 @@ self.onmessage = (event) => {
                     }
                     break;
 
+                case 'requestRespawn':
+                    const deadPlayer = players[socket.id];
+                    if (deadPlayer) {
+                        respawnPlayer(deadPlayer);
+                    }
+                    break;
+
                 // ... (handle other socket events)
             }
             break;
@@ -536,20 +581,57 @@ self.onerror = (error) => {
     console.error('Worker error:', error);
 };
 
-// Add the respawn function
+// Add this function to handle level loss
+function loseLevel(player: Player): void {
+    if (player.level > 1) {
+        player.level--;
+        player.maxHealth -= HEALTH_PER_LEVEL;
+        player.damage -= DAMAGE_PER_LEVEL;
+        player.xp = 0;
+        player.xpToNextLevel = calculateXPRequirement(player.level);
+    }
+}
+
+// Update respawnPlayer to spawn in the appropriate zone based on level
 function respawnPlayer(player: Player) {
-  player.health = PLAYER_MAX_HEALTH;
-  player.x = Math.random() * WORLD_WIDTH;
-  player.y = Math.random() * WORLD_HEIGHT;
-  player.score = Math.max(0, player.score - 10);
-  player.inventory = [];
-  player.isInvulnerable = true;
+    loseLevel(player);
+    
+    // Determine spawn zone based on player level
+    let spawnX;
+    if (player.level <= 5) {
+        spawnX = Math.random() * ZONE_BOUNDARIES.common.end;
+    } else if (player.level <= 10) {
+        spawnX = ZONE_BOUNDARIES.uncommon.start + Math.random() * (ZONE_BOUNDARIES.uncommon.end - ZONE_BOUNDARIES.uncommon.start);
+    } else if (player.level <= 15) {
+        spawnX = ZONE_BOUNDARIES.rare.start + Math.random() * (ZONE_BOUNDARIES.rare.end - ZONE_BOUNDARIES.rare.start);
+    } else if (player.level <= 25) {
+        spawnX = ZONE_BOUNDARIES.epic.start + Math.random() * (ZONE_BOUNDARIES.epic.end - ZONE_BOUNDARIES.epic.start);
+    } else if (player.level <= 40) {
+        spawnX = ZONE_BOUNDARIES.legendary.start + Math.random() * (ZONE_BOUNDARIES.legendary.end - ZONE_BOUNDARIES.legendary.start);
+    } else {
+        spawnX = ZONE_BOUNDARIES.mythic.start + Math.random() * (ZONE_BOUNDARIES.mythic.end - ZONE_BOUNDARIES.mythic.start);
+    }
+    
+    player.health = player.maxHealth;
+    player.x = spawnX;
+    player.y = Math.random() * WORLD_HEIGHT;
+    player.score = Math.max(0, player.score - 10);
+    player.inventory = [];
+    player.isInvulnerable = true;
 
-  // Notify the main thread
-  self.postMessage({ type: 'playerDied', playerId: player.id });
-  self.postMessage({ type: 'playerRespawned', player });
+    // Notify about level loss and respawn
+    socket.emit('playerLostLevel', {
+        playerId: player.id,
+        level: player.level,
+        maxHealth: player.maxHealth,
+        damage: player.damage,
+        xp: player.xp,
+        xpToNextLevel: player.xpToNextLevel
+    });
 
-  setTimeout(() => {
-    player.isInvulnerable = false;
-  }, RESPAWN_INVULNERABILITY_TIME);
+    socket.emit('playerRespawned', player);
+
+    setTimeout(() => {
+        player.isInvulnerable = false;
+    }, RESPAWN_INVULNERABILITY_TIME);
 }
