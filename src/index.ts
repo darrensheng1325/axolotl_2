@@ -115,6 +115,26 @@ const obstacles = [];
 const items = [];
 const dots = [];
 
+// Add Decoration interface
+interface Decoration {
+    x: number;
+    y: number;
+    scale: number;  // For random sizes
+}
+
+// Add decorations array and constants
+const DECORATION_COUNT = 100;  // Number of palms to spawn
+const decorations: Decoration[] = [];
+
+// Add createDecoration function
+function createDecoration(): Decoration {
+    return {
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        scale: 0.5 + Math.random() * 1.5  // Random size between 0.5x and 2x
+    };
+}
+
 function createEnemy() {
     const tierRoll = Math.random();
     let tier = 'common';
@@ -131,7 +151,7 @@ function createEnemy() {
         id: Math.random().toString(36).substr(2, 9),
         type: Math.random() < 0.5 ? 'octopus' : 'fish',
         tier,
-        x: Math.random() * WORLD_WIDTH,
+        x: Math.ranFdom() * WORLD_WIDTH,
         y: Math.random() * WORLD_HEIGHT,
         angle: Math.random() * Math.PI * 2,
         health: tierData.health,
@@ -235,7 +255,7 @@ const mockIo = {
 
 const socket = new MockSocket();
 
-function initializeGame() {
+function initializeGame(messageData?: { savedProgress?: any }) {
     console.log('Initializing game state in worker');
     
     players[socket.id] = {
@@ -280,6 +300,14 @@ function initializeGame() {
             y: Math.random() * WORLD_HEIGHT
         });
     }
+
+    // Create decorations
+    for (let i = 0; i < DECORATION_COUNT; i++) {
+        decorations.push(createDecoration());
+    }
+
+    // Add decorations to the initial state
+    socket.emit('decorationsUpdate', decorations);
 
     socket.emit('currentPlayers', players);
     socket.emit('enemiesUpdate', enemies);
@@ -335,7 +363,7 @@ self.onmessage = (event) => {
     
     switch (type) {
         case 'init':
-            initializeGame();
+            initializeGame(event.data);
             break;
 
         case 'socketEvent':
@@ -565,6 +593,13 @@ class Game {
     private readonly MINIMAP_WIDTH = 200;
     private readonly MINIMAP_HEIGHT = 40;
     private readonly MINIMAP_PADDING = 10;
+    // Add decoration-related properties
+    private palmSprite: HTMLImageElement;
+    private decorations: Array<{
+        x: number;
+        y: number;
+        scale: number;
+    }> = [];
 
     constructor(isSinglePlayer: boolean = false) {
         console.log('Game constructor called');
@@ -595,6 +630,13 @@ class Game {
         this.fishSprite.src = './assets/fish.png';
         this.coralSprite = new Image();
         this.coralSprite.src = './assets/coral.png';
+
+        // Load palm sprite
+        this.palmSprite = new Image();
+        this.palmSprite.src = './assets/palm.png';
+        this.palmSprite.onerror = (e) => {
+            console.error('Error loading palm sprite:', e);
+        };
 
         this.setupEventListeners();
         this.setupItemSprites();
@@ -889,6 +931,14 @@ class Game {
                 this.isPlayerDead = true;
                 this.showDeathScreen();
             }
+        });
+
+        this.socket.on('decorationsUpdate', (decorations: Array<{
+            x: number;
+            y: number;
+            scale: number;
+        }>) => {
+            this.decorations = decorations;
         });
     }
 
@@ -1226,14 +1276,14 @@ class Game {
             this.ctx.strokeStyle = 'black';
             this.ctx.strokeRect(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT);
 
-            // Draw zone indicators
+            // Draw zone indicators with updated colors
             const zones = [
-                { name: 'Common', end: 2000, color: 'rgba(128, 128, 128, 0.2)' },
-                { name: 'Uncommon', end: 4000, color: 'rgba(0, 128, 0, 0.2)' },
-                { name: 'Rare', end: 6000, color: 'rgba(0, 0, 255, 0.2)' },
-                { name: 'Epic', end: 8000, color: 'rgba(128, 0, 128, 0.2)' },
-                { name: 'Legendary', end: 9000, color: 'rgba(255, 165, 0, 0.2)' },
-                { name: 'Mythic', end: this.WORLD_WIDTH, color: 'rgba(255, 0, 0, 0.2)' }
+                { name: 'Common', end: 2000, color: 'rgba(128, 128, 128, 0.1)' },    // Lighter gray
+                { name: 'Uncommon', end: 4000, color: 'rgba(144, 238, 144, 0.1)' },  // Light green (LightGreen)
+                { name: 'Rare', end: 6000, color: 'rgba(0, 0, 255, 0.1)' },          // Blue
+                { name: 'Epic', end: 8000, color: 'rgba(128, 0, 128, 0.1)' },        // Purple
+                { name: 'Legendary', end: 9000, color: 'rgba(255, 165, 0, 0.1)' },   // Orange
+                { name: 'Mythic', end: this.WORLD_WIDTH, color: 'rgba(255, 0, 0, 0.1)' }  // Red
             ];
 
             let start = 0;
@@ -1256,6 +1306,22 @@ class Game {
                 this.ctx.beginPath();
                 this.ctx.arc(dot.x, dot.y, this.DOT_SIZE, 0, Math.PI * 2);
                 this.ctx.fill();
+            });
+
+            // Draw decorations (before players and enemies)
+            this.decorations.forEach(decoration => {
+                this.ctx.save();
+                this.ctx.translate(decoration.x, decoration.y);
+                this.ctx.scale(decoration.scale, decoration.scale);
+                
+                // Draw palm tree (no rotation)
+                this.ctx.drawImage(
+                    this.palmSprite,
+                    -this.palmSprite.width / 2,
+                    -this.palmSprite.height / 2
+                );
+                
+                this.ctx.restore();
             });
 
             // Draw players
@@ -1542,14 +1608,14 @@ class Game {
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
         this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
 
-        // Draw zones on minimap
+        // Draw zones on minimap with matching colors
         const zones = [
-            { color: '#808080' }, // Common
-            { color: '#008000' }, // Uncommon
-            { color: '#0000FF' }, // Rare
-            { color: '#800080' }, // Epic
-            { color: '#FFA500' }, // Legendary
-            { color: '#FF0000' }  // Mythic
+            { color: 'rgba(128, 128, 128, 0.5)' },    // Gray
+            { color: 'rgba(144, 238, 144, 0.5)' },    // Light green
+            { color: 'rgba(0, 0, 255, 0.5)' },        // Blue
+            { color: 'rgba(128, 0, 128, 0.5)' },      // Purple
+            { color: 'rgba(255, 165, 0, 0.5)' },      // Orange
+            { color: 'rgba(255, 0, 0, 0.5)' }         // Red
         ];
 
         zones.forEach((zone, index) => {

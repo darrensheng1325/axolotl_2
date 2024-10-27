@@ -120,6 +120,26 @@ const ENEMY_SIZE_MULTIPLIERS = {
     mythic: 2.0
 };
 
+// Add Decoration interface
+interface Decoration {
+    x: number;
+    y: number;
+    scale: number;  // For random sizes
+}
+
+// Add decorations array and constants
+const DECORATION_COUNT = 100;  // Number of palms to spawn
+const decorations: Decoration[] = [];
+
+// Add createDecoration function
+function createDecoration(): Decoration {
+    return {
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        scale: 0.5 + Math.random() * 1.5  // Random size between 0.5x and 2x
+    };
+}
+
 function calculateXPRequirement(level: number): number {
     return Math.floor(BASE_XP_REQUIREMENT * Math.pow(XP_MULTIPLIER, level - 1));
 }
@@ -383,6 +403,11 @@ function initializeGame(messageData?: { savedProgress?: any }) {
         });
     }
 
+    // Create decorations
+    for (let i = 0; i < DECORATION_COUNT; i++) {
+        decorations.push(createDecoration());
+    }
+
     console.log('Sending initial game state');
     
     // Send all initial state in the correct order
@@ -391,6 +416,7 @@ function initializeGame(messageData?: { savedProgress?: any }) {
     socket.emit('obstaclesUpdate', obstacles);
     socket.emit('itemsUpdate', items);
     socket.emit('playerMoved', players[socket.id]); // Ensure player position is set
+    socket.emit('decorationsUpdate', decorations);
 }
 
 // Handle messages from main thread
@@ -581,22 +607,9 @@ self.onerror = (error) => {
     console.error('Worker error:', error);
 };
 
-// Add this function to handle level loss
-function loseLevel(player: Player): void {
-    if (player.level > 1) {
-        player.level--;
-        player.maxHealth -= HEALTH_PER_LEVEL;
-        player.damage -= DAMAGE_PER_LEVEL;
-        player.xp = 0;
-        player.xpToNextLevel = calculateXPRequirement(player.level);
-    }
-}
-
-// Update respawnPlayer to spawn in the appropriate zone based on level
+// Update respawnPlayer to not lose levels
 function respawnPlayer(player: Player) {
-    loseLevel(player);
-    
-    // Determine spawn zone based on player level
+    // Determine spawn zone based on player level without losing levels
     let spawnX;
     if (player.level <= 5) {
         spawnX = Math.random() * ZONE_BOUNDARIES.common.end;
@@ -612,23 +625,15 @@ function respawnPlayer(player: Player) {
         spawnX = ZONE_BOUNDARIES.mythic.start + Math.random() * (ZONE_BOUNDARIES.mythic.end - ZONE_BOUNDARIES.mythic.start);
     }
     
+    // Reset health and position but keep level and stats
     player.health = player.maxHealth;
     player.x = spawnX;
     player.y = Math.random() * WORLD_HEIGHT;
-    player.score = Math.max(0, player.score - 10);
+    player.score = Math.max(0, player.score - 10); // Still lose some score
     player.inventory = [];
     player.isInvulnerable = true;
 
-    // Notify about level loss and respawn
-    socket.emit('playerLostLevel', {
-        playerId: player.id,
-        level: player.level,
-        maxHealth: player.maxHealth,
-        damage: player.damage,
-        xp: player.xp,
-        xpToNextLevel: player.xpToNextLevel
-    });
-
+    // Just notify about respawn without level loss
     socket.emit('playerRespawned', player);
 
     setTimeout(() => {
