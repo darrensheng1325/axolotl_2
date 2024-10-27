@@ -504,7 +504,13 @@ class Game {
         console.log('Game constructor called');
         this.canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
         this.ctx = this.canvas.getContext('2d')!;
-        console.log('Canvas dimensions:', this.canvas.width, 'x', this.canvas.height);
+        
+        // Set initial canvas size
+        this.resizeCanvas();
+        
+        // Add resize listener
+        window.addEventListener('resize', () => this.resizeCanvas());
+        
         this.isSinglePlayer = isSinglePlayer;
 
         // Initialize sprites and other resources with relative paths
@@ -1200,6 +1206,15 @@ class Game {
             sprite.src = `./assets/${type}.png`;
             this.itemSprites[type] = sprite;
         });
+    }
+
+    private resizeCanvas() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        
+        // Update any viewport-dependent calculations here
+        // For example, you might want to adjust the camera bounds
+        console.log('Canvas resized to:', this.canvas.width, 'x', this.canvas.height);
     }
 
     public cleanup() {
