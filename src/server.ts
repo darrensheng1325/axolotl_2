@@ -5,22 +5,45 @@ import path from 'path';
 import fs from 'fs';
 
 const app = express();
-const httpsServer = createServer({
-  key: fs.readFileSync('cert.key'),
-  cert: fs.readFileSync('cert.crt')
-}, app);
-const io = new Server(httpsServer, {
-  cors: {
-    origin: ["https://localhost:8080", "https://0.0.0.0:3000"],
-    methods: ["GET", "POST"],
-    credentials: true
-  }
-});
 
-const PORT = process.env.PORT || 3000;
+// Add CORS middleware with specific origin
+app.use((req, res, next) => {
+    const origin = req.headers.origin || 'https://localhost:8080';
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+    } else {
+        next();
+    }
+});
 
 // Serve static files from the dist directory
 app.use(express.static(path.join(__dirname, '../dist')));
+
+const httpsServer = createServer({
+    key: fs.readFileSync('cert.key'),
+    cert: fs.readFileSync('cert.crt')
+}, app);
+
+const io = new Server(httpsServer, {
+    cors: {
+        origin: function(origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+            
+            // Use the origin of the request
+            callback(null, origin);
+        },
+        methods: ["GET", "POST"],
+        credentials: true
+    }
+});
+
+const PORT = process.env.PORT || 3000;
 
 interface Player {
   id: string;

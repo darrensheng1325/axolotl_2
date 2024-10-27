@@ -9,20 +9,40 @@ const socket_io_1 = require("socket.io");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const app = (0, express_1.default)();
+// Add CORS middleware with specific origin
+app.use((req, res, next) => {
+    const origin = req.headers.origin || 'https://localhost:8080';
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+    }
+    else {
+        next();
+    }
+});
+// Serve static files from the dist directory
+app.use(express_1.default.static(path_1.default.join(__dirname, '../dist')));
 const httpsServer = (0, https_1.createServer)({
     key: fs_1.default.readFileSync('cert.key'),
     cert: fs_1.default.readFileSync('cert.crt')
 }, app);
 const io = new socket_io_1.Server(httpsServer, {
     cors: {
-        origin: ["https://localhost:8080", "https://0.0.0.0:3000"],
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin)
+                return callback(null, true);
+            // Use the origin of the request
+            callback(null, origin);
+        },
         methods: ["GET", "POST"],
         credentials: true
     }
 });
 const PORT = process.env.PORT || 3000;
-// Serve static files from the dist directory
-app.use(express_1.default.static(path_1.default.join(__dirname, '../dist')));
 const players = {};
 const dots = [];
 const enemies = [];
