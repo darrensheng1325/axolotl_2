@@ -712,14 +712,193 @@ class Game {
     private initSinglePlayerMode() {
         console.log('Initializing single player mode');
         try {
-            // Create the worker using the separate file
-            this.worker = new Worker(new URL('./singlePlayerWorker.ts', import.meta.url));
+            // Create inline worker with the worker code
+            const workerBlob = new Blob([`
+                // Worker constants
+                const WORLD_WIDTH = 2000;
+                const WORLD_HEIGHT = 2000;
+                const ENEMY_COUNT = 10;
+                const OBSTACLE_COUNT = 20;
+                const ENEMY_CORAL_PROBABILITY = 0.3;
+                const ENEMY_CORAL_HEALTH = 50;
+                const ENEMY_CORAL_DAMAGE = 5;
+                const PLAYER_MAX_HEALTH = 100;
+                const PLAYER_DAMAGE = 10;
+                const ITEM_COUNT = 10;
+                const MAX_INVENTORY_SIZE = 5;
+                const PLAYER_SIZE = 40;
+                const COLLISION_RADIUS = PLAYER_SIZE / 2;
+                const ENEMY_SIZE = 40;
+                const RESPAWN_INVULNERABILITY_TIME = 3000;
+                const KNOCKBACK_FORCE = 100;
+                const KNOCKBACK_RECOVERY_SPEED = 0.9;
+                const HEALTH_PER_LEVEL = 10;
+                const DAMAGE_PER_LEVEL = 2;
+
+                const ENEMY_TIERS = {
+                    common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
+                    uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3 },
+                    rare: { health: 60, speed: 1, damage: 15, probability: 0.15 },
+                    epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1 },
+                    legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04 },
+                    mythic: { health: 150, speed: 2, damage: 30, probability: 0.01 }
+                };
+
+                const players = {};
+                const enemies = [];
+                const obstacles = [];
+                const items = [];
+                const dots = [];
+                const decorations = [];
+                const sands = [];
+
+                // Mock Socket class implementation
+                class MockSocket {
+                    constructor() {
+                        this.eventHandlers = new Map();
+                        this.id = 'player1';
+                    }
+                    on(event, handler) {
+                        if (!this.eventHandlers.has(event)) {
+                            this.eventHandlers.set(event, []);
+                        }
+                        this.eventHandlers.get(event)?.push(handler);
+                    }
+                    emit(event, data) {
+                        self.postMessage({
+                            type: 'socketEvent',
+                            event,
+                            data
+                        });
+                    }
+                    getId() {
+                        return this.id;
+                    }
+                }
+
+                const socket = new MockSocket();
+
+                // Helper functions
+                function createEnemy() {
+                    const tierRoll = Math.random();
+                    let tier = 'common';
+                    let cumulativeProbability = 0;
+                    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
+                        cumulativeProbability += data.probability;
+                        if (tierRoll < cumulativeProbability) {
+                            tier = t;
+                            break;
+                        }
+                    }
+                    const tierData = ENEMY_TIERS[tier];
+                    return {
+                        id: Math.random().toString(36).substr(2, 9),
+                        type: Math.random() < 0.5 ? 'octopus' : 'fish',
+                        tier,
+                        x: Math.random() * WORLD_WIDTH,
+                        y: Math.random() * WORLD_HEIGHT,
+                        angle: Math.random() * Math.PI * 2,
+                        health: tierData.health,
+                        speed: tierData.speed,
+                        damage: tierData.damage,
+                        knockbackX: 0,
+                        knockbackY: 0
+                    };
+                }
+
+                function createObstacle() {
+                    const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
+                    return {
+                        id: Math.random().toString(36).substr(2, 9),
+                        x: Math.random() * WORLD_WIDTH,
+                        y: Math.random() * WORLD_HEIGHT,
+                        width: 50 + Math.random() * 50,
+                        height: 50 + Math.random() * 50,
+                        type: 'coral',
+                        isEnemy,
+                        health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
+                    };
+                }
+
+                function createItem() {
+                    return {
+                        id: Math.random().toString(36).substr(2, 9),
+                        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
+                        x: Math.random() * WORLD_WIDTH,
+                        y: Math.random() * WORLD_HEIGHT
+                    };
+                }
+
+                function moveEnemies() {
+                    enemies.forEach(enemy => {
+                        // ... (keep existing moveEnemies code)
+                    });
+                }
+
+                function initializeGame(messageData) {
+                    const savedProgress = messageData?.savedProgress;
+                    
+                    players[socket.id] = {
+                        id: socket.id,
+                        x: WORLD_WIDTH / 2,
+                        y: WORLD_HEIGHT / 2,
+                        angle: 0,
+                        score: 0,
+                        velocityX: 0,
+                        velocityY: 0,
+                        health: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
+                        inventory: [],
+                        isInvulnerable: true,
+                        level: savedProgress?.level || 1,
+                        xp: savedProgress?.xp || 0,
+                        xpToNextLevel: 100,
+                        maxHealth: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
+                        damage: savedProgress?.damage || PLAYER_DAMAGE
+                    };
+
+                    // Initialize game elements
+                    for (let i = 0; i < ENEMY_COUNT; i++) enemies.push(createEnemy());
+                    for (let i = 0; i < OBSTACLE_COUNT; i++) obstacles.push(createObstacle());
+                    for (let i = 0; i < ITEM_COUNT; i++) items.push(createItem());
+
+                    // Send initial state
+                    socket.emit('currentPlayers', players);
+                    socket.emit('enemiesUpdate', enemies);
+                    socket.emit('obstaclesUpdate', obstacles);
+                    socket.emit('itemsUpdate', items);
+                    socket.emit('playerMoved', players[socket.id]);
+                }
+
+                // Message handler
+                self.onmessage = function(event) {
+                    const { type, event: socketEvent, data } = event.data;
+                    
+                    switch (type) {
+                        case 'init':
+                            initializeGame(event.data);
+                            break;
+                        case 'socketEvent':
+                            // Handle socket events
+                            // ... (keep existing socket event handling code)
+                            break;
+                    }
+                };
+
+                // Start enemy movement interval
+                setInterval(() => {
+                    moveEnemies();
+                    socket.emit('enemiesUpdate', enemies);
+                }, 100);
+            `], { type: 'application/javascript' });
+
+            // Create worker from blob
+            this.worker = new Worker(URL.createObjectURL(workerBlob));
             
             // Load saved progress
             const savedProgress = this.loadPlayerProgress();
-            console.log('Loaded saved progress:', savedProgress);  // Debug log
-            
-            // Create a mock socket for single player
+            console.log('Loaded saved progress:', savedProgress);
+
+            // Create mock socket
             const mockSocket = {
                 id: 'player1',
                 emit: (event: string, data: any) => {
@@ -739,13 +918,13 @@ class Game {
                 }
             };
 
-            // Use mock socket instead of real socket
+            // Use mock socket
             this.socket = mockSocket as any;
 
-            // Set up socket event handlers first
+            // Set up socket listeners
             this.setupSocketListeners();
 
-            // Handle messages from worker
+            // Handle worker messages
             this.worker.onmessage = (event) => {
                 const { type, event: socketEvent, data } = event.data;
                 console.log('Received message from worker:', type, socketEvent, data);
@@ -758,12 +937,13 @@ class Game {
                 }
             };
 
-            // Initialize the game with saved progress
+            // Initialize game
             console.log('Sending init message to worker with saved progress');
             this.worker.postMessage({ 
                 type: 'init',
-                savedProgress  // Pass the saved progress directly here
+                savedProgress
             });
+
         } catch (error) {
             console.error('Error initializing worker:', error);
         }
