@@ -668,6 +668,14 @@ class Game {
                     legendary: { start: 8000, end: 9000 },
                     mythic: { start: 9000, end: WORLD_WIDTH }
                 };
+                var ENEMY_SIZE_MULTIPLIERS = {
+                    common: 1.0,
+                    uncommon: 1.2,
+                    rare: 1.4,
+                    epic: 1.6,
+                    legendary: 1.8,
+                    mythic: 2.0
+                };
 
                 const players = {};
                 const enemies = [];
@@ -924,8 +932,176 @@ class Game {
                             initializeGame(event.data);
                             break;
                         case 'socketEvent':
-                            // Handle socket events
-                            // ... (keep existing socket event handling code)
+                            switch (socketEvent) {
+                case 'playerMovement':
+                    var player = players[socket.id];
+                    if (player) {
+                        var newX = data.x;
+                        var newY = data.y;
+                        // Apply knockback to player position if it exists
+                        if (player.knockbackX) {
+                            player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+                            newX += player.knockbackX;
+                            if (Math.abs(player.knockbackX) < 0.1)
+                                player.knockbackX = 0;
+                        }
+                        if (player.knockbackY) {
+                            player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+                            newY += player.knockbackY;
+                            if (Math.abs(player.knockbackY) < 0.1)
+                                player.knockbackY = 0;
+                        }
+                        var collision = false;
+                        var _loop_1 = function (enemy) {
+                            var enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+                            if (newX < enemy.x + enemySize &&
+                                newX + PLAYER_SIZE > enemy.x &&
+                                newY < enemy.y + enemySize &&
+                                newY + PLAYER_SIZE > enemy.y) {
+                                collision = true;
+                                if (!player.isInvulnerable) {
+                                    // Enemy damages player
+                                    player.health -= enemy.damage;
+                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+                                    // Player damages enemy
+                                    enemy.health -= player.damage; // Use player.damage instead of PLAYER_DAMAGE
+                                    socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+                                    // Calculate knockback direction
+                                    var dx = enemy.x - newX;
+                                    var dy = enemy.y - newY;
+                                    var distance = Math.sqrt(dx * dx + dy * dy);
+                                    var normalizedDx = dx / distance;
+                                    var normalizedDy = dy / distance;
+                                    // Apply knockback to player's position immediately
+                                    newX -= normalizedDx * KNOCKBACK_FORCE;
+                                    newY -= normalizedDy * KNOCKBACK_FORCE;
+                                    // Store knockback for gradual recovery
+                                    player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
+                                    player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+                                    // Check if enemy dies
+                                    if (enemy.health <= 0) {
+                                        var index = enemies.findIndex(function (e) { return e.id === enemy.id; });
+                                        if (index !== -1) {
+                                            // Award XP before removing the enemy
+                                            var xpGained = getXPFromEnemy(enemy);
+                                            addXPToPlayer(player, xpGained);
+                                            // Check for item drop and add directly to inventory
+                                            var dropChance = DROP_CHANCES[enemy.tier];
+                                            if (Math.random() < dropChance && player.inventory.length < MAX_INVENTORY_SIZE) {
+                                                // Create item and add directly to player's inventory
+                                                var newItem = {
+                                                    id: Math.random().toString(36).substr(2, 9),
+                                                    type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
+                                                    x: enemy.x,
+                                                    y: enemy.y
+                                                };
+                                                player.inventory.push(newItem);
+                                                // Notify about item pickup
+                                                socket.emit('inventoryUpdate', player.inventory);
+                                                socket.emit('itemCollected', {
+                                                    playerId: player.id,
+                                                    itemId: newItem.id,
+                                                    itemType: newItem.type
+                                                });
+                                            }
+                                            // Remove the dead enemy and create a new one
+                                            enemies.splice(index, 1);
+                                            socket.emit('enemyDestroyed', enemy.id);
+                                            enemies.push(createEnemy());
+                                        }
+                                    }
+                                    // Check if player dies
+                                    if (player.health <= 0) {
+                                        respawnPlayer(player);
+                                        socket.emit('playerDied', player.id);
+                                        socket.emit('playerRespawned', player);
+                                        return { value: void 0 };
+                                    }
+                                }
+                                return "break";
+                            }
+                        };
+                        // Check collision with enemies first
+                        for (var _i = 0, enemies_1 = enemies; _i < enemies_1.length; _i++) {
+                            var enemy = enemies_1[_i];
+                            var state_1 = _loop_1(enemy);
+                            console.log(state_1);
+                            if (typeof state_1 === "object")
+                                return state_1.value;
+                            if (state_1 === "break")
+                                break;
+                        }
+                        // Check collision with obstacles
+                        for (var _b = 0, obstacles_1 = obstacles; _b < obstacles_1.length; _b++) {
+                            var obstacle = obstacles_1[_b];
+                            console.log(obstacle);
+                            if (newX < obstacle.x + obstacle.width &&
+                                newX + PLAYER_SIZE > obstacle.x &&
+                                newY < obstacle.y + obstacle.height &&
+                                newY + PLAYER_SIZE > obstacle.y) {
+                                collision = true;
+                                if (obstacle.isEnemy && !player.isInvulnerable) {
+                                    player.health -= ENEMY_CORAL_DAMAGE;
+                                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+                                    if (player.health <= 0) {
+                                        respawnPlayer(player);
+                                        socket.emit('playerDied', player.id);
+                                        socket.emit('playerRespawned', player);
+                                        return; // Exit early if player dies
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        // Update player position
+                        // Even if there was a collision, we want to apply the knockback
+                        player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+                        player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+                        player.angle = data.angle;
+                        player.velocityX = data.velocityX;
+                        player.velocityY = data.velocityY;
+                        // Always emit the player's position
+                        socket.emit('playerMoved', player);
+                    }
+                    break;
+                case 'collectItem':
+                    var itemIndex = items.findIndex(function (item) { return item.id === data.itemId; });
+                    if (itemIndex !== -1 && players[socket.id].inventory.length < MAX_INVENTORY_SIZE) {
+                        var item = items[itemIndex];
+                        players[socket.id].inventory.push(item);
+                        items.splice(itemIndex, 1);
+                        items.push(createItem());
+                        socket.emit('itemCollected', { playerId: socket.id, itemId: data.itemId });
+                    }
+                    break;
+                case 'useItem':
+                    var playerUsingItem = players[socket.id];
+                    var inventoryIndex = playerUsingItem.inventory.findIndex(function (item) { return item.id === data.itemId; });
+                    if (inventoryIndex !== -1) {
+                        var item = playerUsingItem.inventory[inventoryIndex];
+                        playerUsingItem.inventory.splice(inventoryIndex, 1);
+                        switch (item.type) {
+                            case 'health_potion':
+                                playerUsingItem.health = Math.min(playerUsingItem.health + 50, PLAYER_MAX_HEALTH);
+                                break;
+                            case 'speed_boost':
+                                // Implement speed boost
+                                break;
+                            case 'shield':
+                                // Implement shield
+                                break;
+                        }
+                        socket.emit('itemUsed', { playerId: socket.id, itemId: data.itemId });
+                    }
+                    break;
+                case 'requestRespawn':
+                    var deadPlayer = players[socket.id];
+                    if (deadPlayer) {
+                        respawnPlayer(deadPlayer);
+                    }
+                    break;
+                // ... (handle other socket events)
+            }
             break;
         }
     };
