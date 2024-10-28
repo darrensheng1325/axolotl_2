@@ -94,10 +94,20 @@ const WORLD_HEIGHT = 2000;
 
 // ... (other constants)
 
-// Helper function to get random position in a zone
+// Helper function to get random position in a specific zone
 function getRandomPositionInZone(zoneIndex) {
     const zoneWidth = WORLD_WIDTH / 6;  // 6 zones
     const startX = zoneIndex * zoneWidth;
+    
+    // For legendary and mythic zones, ensure they're in the rightmost areas
+    if (zoneIndex >= 4) {  // Legendary and Mythic zones
+        const adjustedStartX = WORLD_WIDTH - (6 - zoneIndex) * (zoneWidth / 2);  // Start from right side
+        return {
+            x: adjustedStartX + Math.random() * (WORLD_WIDTH - adjustedStartX),
+            y: Math.random() * WORLD_HEIGHT
+        };
+    }
+    
     return {
         x: startX + Math.random() * zoneWidth,
         y: Math.random() * WORLD_HEIGHT
@@ -128,7 +138,7 @@ function createEnemy() {
     }
     const tierData = ENEMY_TIERS[tier];
     
-    // Place enemies in appropriate zones based on their tier
+    // Map tiers to specific zones, ensuring legendary and mythic are in the rightmost areas
     const tierZones = {
         common: 0,
         uncommon: 1,
@@ -137,6 +147,7 @@ function createEnemy() {
         legendary: 4,
         mythic: 5
     };
+    
     const pos = getRandomPositionInZone(tierZones[tier]);
     
     return {
@@ -203,11 +214,37 @@ function initializeGame(messageData) {
         damage: PLAYER_DAMAGE
     };
 
-    // Create game elements evenly distributed across zones
-    for (let i = 0; i < ENEMY_COUNT; i++) {
+    // Ensure specific number of legendary and mythic enemies
+    const legendaryCount = Math.floor(ENEMY_COUNT * 0.04);  // 4% of total
+    const mythicCount = Math.floor(ENEMY_COUNT * 0.01);     // 1% of total
+    
+    // Spawn legendary enemies
+    for (let i = 0; i < legendaryCount; i++) {
+        const enemy = createEnemy();
+        enemy.tier = 'legendary';
+        const pos = getRandomPositionInZone(4);  // Zone 4 for legendary
+        enemy.x = pos.x;
+        enemy.y = pos.y;
+        enemies.push(enemy);
+    }
+    
+    // Spawn mythic enemies
+    for (let i = 0; i < mythicCount; i++) {
+        const enemy = createEnemy();
+        enemy.tier = 'mythic';
+        const pos = getRandomPositionInZone(5);  // Zone 5 for mythic
+        enemy.x = pos.x;
+        enemy.y = pos.y;
+        enemies.push(enemy);
+    }
+    
+    // Spawn remaining enemies
+    const remainingCount = ENEMY_COUNT - legendaryCount - mythicCount;
+    for (let i = 0; i < remainingCount; i++) {
         enemies.push(createEnemy());
     }
 
+    // Create game elements evenly distributed across zones
     for (let i = 0; i < OBSTACLE_COUNT; i++) {
         obstacles.push(createObstacle());
     }
@@ -598,7 +635,7 @@ class Game {
                 // Worker code starts here
                 const WORLD_WIDTH = 10000;  // Changed from 2000 to 10000
                 const WORLD_HEIGHT = 2000;
-                const ENEMY_COUNT = 10;
+                const ENEMY_COUNT = 100;
                 const OBSTACLE_COUNT = 20;
                 const ENEMY_CORAL_PROBABILITY = 0.3;
                 const ENEMY_CORAL_HEALTH = 50;
@@ -632,10 +669,20 @@ class Game {
                 const decorations = [];
                 const sands = [];
 
-                // Helper function to get random position in a zone
+                // Helper function to get random position in a specific zone
                 function getRandomPositionInZone(zoneIndex) {
                     const zoneWidth = WORLD_WIDTH / 6;  // 6 zones
                     const startX = zoneIndex * zoneWidth;
+                    
+                    // For legendary and mythic zones, ensure they're in the rightmost areas
+                    if (zoneIndex >= 4) {  // Legendary and Mythic zones
+                        const adjustedStartX = WORLD_WIDTH - (6 - zoneIndex) * (zoneWidth / 2);  // Start from right side
+                        return {
+                            x: adjustedStartX + Math.random() * (WORLD_WIDTH - adjustedStartX),
+                            y: Math.random() * WORLD_HEIGHT
+                        };
+                    }
+                    
                     return {
                         x: startX + Math.random() * zoneWidth,
                         y: Math.random() * WORLD_HEIGHT
@@ -666,7 +713,7 @@ class Game {
                     }
                     const tierData = ENEMY_TIERS[tier];
                     
-                    // Place enemies in appropriate zones based on their tier
+                    // Map tiers to specific zones, ensuring legendary and mythic are in the rightmost areas
                     const tierZones = {
                         common: 0,
                         uncommon: 1,
@@ -675,6 +722,7 @@ class Game {
                         legendary: 4,
                         mythic: 5
                     };
+                    
                     const pos = getRandomPositionInZone(tierZones[tier]);
                     
                     return {
@@ -741,8 +789,33 @@ class Game {
                         damage: PLAYER_DAMAGE
                     };
 
-                    // Create game elements evenly distributed across zones
-                    for (let i = 0; i < ENEMY_COUNT; i++) {
+                    // Ensure specific number of legendary and mythic enemies
+                    const legendaryCount = Math.floor(ENEMY_COUNT * 0.04);  // 4% of total
+                    const mythicCount = Math.floor(ENEMY_COUNT * 0.01);     // 1% of total
+                    
+                    // Spawn legendary enemies
+                    for (let i = 0; i < legendaryCount; i++) {
+                        const enemy = createEnemy();
+                        enemy.tier = 'legendary';
+                        const pos = getRandomPositionInZone(4);  // Zone 4 for legendary
+                        enemy.x = pos.x;
+                        enemy.y = pos.y;
+                        enemies.push(enemy);
+                    }
+                    
+                    // Spawn mythic enemies
+                    for (let i = 0; i < mythicCount; i++) {
+                        const enemy = createEnemy();
+                        enemy.tier = 'mythic';
+                        const pos = getRandomPositionInZone(5);  // Zone 5 for mythic
+                        enemy.x = pos.x;
+                        enemy.y = pos.y;
+                        enemies.push(enemy);
+                    }
+                    
+                    // Spawn remaining enemies
+                    const remainingCount = ENEMY_COUNT - legendaryCount - mythicCount;
+                    for (let i = 0; i < remainingCount; i++) {
                         enemies.push(createEnemy());
                     }
 
