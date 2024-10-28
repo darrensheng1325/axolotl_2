@@ -660,6 +660,14 @@ class Game {
                     legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04 },
                     mythic: { health: 150, speed: 2, damage: 30, probability: 0.01 }
                 };
+                var ZONE_BOUNDARIES = {
+                    common: { start: 0, end: 2000 },
+                    uncommon: { start: 2000, end: 4000 },
+                    rare: { start: 4000, end: 6000 },
+                    epic: { start: 6000, end: 8000 },
+                    legendary: { start: 8000, end: 9000 },
+                    mythic: { start: 9000, end: WORLD_WIDTH }
+                };
 
                 const players = {};
                 const enemies = [];
@@ -687,6 +695,47 @@ class Game {
                         x: startX + Math.random() * zoneWidth,
                         y: Math.random() * WORLD_HEIGHT
                     };
+                }
+                function moveEnemies() {
+                    enemies.forEach(function (enemy) {
+                        // Store original x position
+                        var originalX = enemy.x;
+                        // Apply existing movement logic
+                        if (enemy.knockbackX) {
+                            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+                            enemy.x += enemy.knockbackX;
+                            if (Math.abs(enemy.knockbackX) < 0.1)
+                                enemy.knockbackX = 0;
+                        }
+                        if (enemy.knockbackY) {
+                            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+                            enemy.y += enemy.knockbackY;
+                            if (Math.abs(enemy.knockbackY) < 0.1)
+                                enemy.knockbackY = 0;
+                        }
+                        if (enemy.type === 'octopus') {
+                            enemy.x += (Math.random() * 4 - 2) * enemy.speed;
+                            enemy.y += (Math.random() * 4 - 2) * enemy.speed;
+                        }
+                        else {
+                            enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
+                            enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
+                        }
+                        // Keep enemy within its zone boundaries
+                        var zone = ZONE_BOUNDARIES[enemy.tier];
+                        if (enemy.x < zone.start || enemy.x >= zone.end) {
+                            // If enemy would leave its zone, reverse direction or reset position
+                            if (enemy.type === 'fish') {
+                                enemy.angle = Math.PI - enemy.angle; // Reverse direction
+                            }
+                            enemy.x = Math.max(zone.start, Math.min(zone.end - 1, enemy.x));
+                        }
+                        // Wrap around only for Y axis
+                        enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
+                        if (enemy.type === 'fish' && Math.random() < 0.02) {
+                            enemy.angle = Math.random() * Math.PI * 2;
+                        }
+                    });
                 }
 
                 // Update creation functions to use zones
