@@ -56,6 +56,13 @@ interface Item {
     y: number;
 }
 
+// Add interfaces before the workerCode string
+interface Decoration {
+    x: number;
+    y: number;
+    scale: number;  // For random sizes
+}
+
 let currentGame: Game | null = null;
 
 window.onload = () => {
@@ -81,81 +88,30 @@ window.onload = () => {
 
 // Add this at the top of index.ts, before the Game class
 const workerCode = `
-// Worker code starts here
-const WORLD_WIDTH = 2000;
+// Update world dimensions
+const WORLD_WIDTH = 10000;  // Changed from 2000 to 10000
 const WORLD_HEIGHT = 2000;
-const ENEMY_COUNT = 10;
-const OBSTACLE_COUNT = 20;
-const ENEMY_CORAL_PROBABILITY = 0.3;
-const ENEMY_CORAL_HEALTH = 50;
-const ENEMY_CORAL_DAMAGE = 5;
-const PLAYER_MAX_HEALTH = 100;
-const PLAYER_DAMAGE = 10;
-const ITEM_COUNT = 10;
-const MAX_INVENTORY_SIZE = 5;
-const PLAYER_SIZE = 40;
-const COLLISION_RADIUS = PLAYER_SIZE / 2;
-const ENEMY_SIZE = 40;
-const RESPAWN_INVULNERABILITY_TIME = 3000;
-const KNOCKBACK_FORCE = 100;
-const KNOCKBACK_RECOVERY_SPEED = 0.9;
 
-const ENEMY_TIERS = {
-    common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
-    uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3 },
-    rare: { health: 60, speed: 1, damage: 15, probability: 0.15 },
-    epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1 },
-    legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04 },
-    mythic: { health: 150, speed: 2, damage: 30, probability: 0.01 }
-};
+// ... (other constants)
 
-const players = {};
-const enemies = [];
-const obstacles = [];
-const items = [];
-const dots = [];
-
-// Add Decoration interface
-interface Decoration {
-    x: number;
-    y: number;
-    scale: number;  // For random sizes
-}
-
-// Add decorations array and constants
-const DECORATION_COUNT = 100;  // Number of palms to spawn
-const decorations: Decoration[] = [];
-
-// Add createDecoration function
-function createDecoration(): Decoration {
+// Helper function to get random position in a zone
+function getRandomPositionInZone(zoneIndex) {
+    const zoneWidth = WORLD_WIDTH / 6;  // 6 zones
+    const startX = zoneIndex * zoneWidth;
     return {
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
-        scale: 0.5 + Math.random() * 1.5  // Random size between 0.5x and 2x
+        x: startX + Math.random() * zoneWidth,
+        y: Math.random() * WORLD_HEIGHT
     };
 }
 
-// Add Sand interface
-interface Sand {
-    x: number;
-    y: number;
-    radius: number;  // Random size for each sand blob
-    rotation: number;  // For slight variation in shape
-}
-
-// Add sand array and constants
-const SAND_COUNT = 200;  // Number of sand blobs
-const MIN_SAND_RADIUS = 30;
-const MAX_SAND_RADIUS = 80;
-const sands: Sand[] = [];
-
-// Add createSand function
-function createSand(): Sand {
+// Update creation functions to use zones
+function createDecoration() {
+    const zoneIndex = Math.floor(Math.random() * 6);  // 6 zones
+    const pos = getRandomPositionInZone(zoneIndex);
     return {
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
-        radius: MIN_SAND_RADIUS + Math.random() * (MAX_SAND_RADIUS - MIN_SAND_RADIUS),
-        rotation: Math.random() * Math.PI * 2
+        x: pos.x,
+        y: pos.y,
+        scale: 0.5 + Math.random() * 1.5
     };
 }
 
@@ -171,12 +127,24 @@ function createEnemy() {
         }
     }
     const tierData = ENEMY_TIERS[tier];
+    
+    // Place enemies in appropriate zones based on their tier
+    const tierZones = {
+        common: 0,
+        uncommon: 1,
+        rare: 2,
+        epic: 3,
+        legendary: 4,
+        mythic: 5
+    };
+    const pos = getRandomPositionInZone(tierZones[tier]);
+    
     return {
         id: Math.random().toString(36).substr(2, 9),
         type: Math.random() < 0.5 ? 'octopus' : 'fish',
         tier,
-        x: Math.ranFdom() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
+        x: pos.x,
+        y: pos.y,
         angle: Math.random() * Math.PI * 2,
         health: tierData.health,
         speed: tierData.speed,
@@ -187,11 +155,13 @@ function createEnemy() {
 }
 
 function createObstacle() {
+    const zoneIndex = Math.floor(Math.random() * 6);
+    const pos = getRandomPositionInZone(zoneIndex);
     const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
     return {
         id: Math.random().toString(36).substr(2, 9),
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
+        x: pos.x,
+        y: pos.y,
         width: 50 + Math.random() * 50,
         height: 50 + Math.random() * 50,
         type: 'coral',
@@ -201,90 +171,23 @@ function createObstacle() {
 }
 
 function createItem() {
+    const zoneIndex = Math.floor(Math.random() * 6);
+    const pos = getRandomPositionInZone(zoneIndex);
     return {
         id: Math.random().toString(36).substr(2, 9),
         type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT
+        x: pos.x,
+        y: pos.y
     };
 }
 
-function moveEnemies() {
-    enemies.forEach(enemy => {
-        if (enemy.knockbackX) {
-            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.x += enemy.knockbackX;
-            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
-        }
-        if (enemy.knockbackY) {
-            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.y += enemy.knockbackY;
-            if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
-        }
-
-        if (enemy.type === 'octopus') {
-            enemy.x += (Math.random() * 4 - 2) * enemy.speed;
-            enemy.y += (Math.random() * 4 - 2) * enemy.speed;
-        } else {
-            enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
-            enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
-        }
-
-        enemy.x = (enemy.x + WORLD_WIDTH) % WORLD_WIDTH;
-        enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
-
-        if (enemy.type === 'fish' && Math.random() < 0.02) {
-            enemy.angle = Math.random() * Math.PI * 2;
-        }
-    });
-}
-
-class MockSocket {
-    constructor() {
-        this.eventHandlers = new Map();
-        this.id = 'player1';
-        this.broadcast = {
-            emit: (event, data) => {
-                // In single player, broadcast events are ignored
-            }
-        };
-    }
-    on(event, handler) {
-        if (!this.eventHandlers.has(event)) {
-            this.eventHandlers.set(event, []);
-        }
-        this.eventHandlers.get(event)?.push(handler);
-    }
-    emit(event, data) {
-        self.postMessage({
-            type: 'socketEvent',
-            event,
-            data
-        });
-    }
-    getId() {
-        return this.id;
-    }
-}
-
-const mockIo = {
-    emit: (event, data) => {
-        self.postMessage({
-            type: 'socketEvent',
-            event,
-            data
-        });
-    }
-};
-
-const socket = new MockSocket();
-
-function initializeGame(messageData?: { savedProgress?: any }) {
+function initializeGame(messageData) {
     console.log('Initializing game state in worker');
     
+    // Start player in the first zone (common)
     players[socket.id] = {
         id: socket.id,
-        x: WORLD_WIDTH / 2,
+        x: WORLD_WIDTH / 12,  // Center of first zone
         y: WORLD_HEIGHT / 2,
         angle: 0,
         score: 0,
@@ -300,12 +203,7 @@ function initializeGame(messageData?: { savedProgress?: any }) {
         damage: PLAYER_DAMAGE
     };
 
-    setTimeout(() => {
-        if (players[socket.id]) {
-            players[socket.id].isInvulnerable = false;
-        }
-    }, RESPAWN_INVULNERABILITY_TIME);
-
+    // Create game elements evenly distributed across zones
     for (let i = 0; i < ENEMY_COUNT; i++) {
         enemies.push(createEnemy());
     }
@@ -318,33 +216,16 @@ function initializeGame(messageData?: { savedProgress?: any }) {
         items.push(createItem());
     }
 
-    for (let i = 0; i < 20; i++) {
-        dots.push({
-            x: Math.random() * WORLD_WIDTH,
-            y: Math.random() * WORLD_HEIGHT
-        });
-    }
-
-    // Create decorations
     for (let i = 0; i < DECORATION_COUNT; i++) {
         decorations.push(createDecoration());
     }
 
-    // Add decorations to the initial state
-    socket.emit('decorationsUpdate', decorations);
-
-    // Create sand blobs
-    for (let i = 0; i < SAND_COUNT; i++) {
-        sands.push(createSand());
-    }
-
-    // Add sand to the initial state
-    socket.emit('sandsUpdate', sands);
-
+    // Emit initial state
     socket.emit('currentPlayers', players);
     socket.emit('enemiesUpdate', enemies);
     socket.emit('obstaclesUpdate', obstacles);
     socket.emit('itemsUpdate', items);
+    socket.emit('decorationsUpdate', decorations);
     socket.emit('playerMoved', players[socket.id]);
 }
 
@@ -714,8 +595,8 @@ class Game {
         try {
             // Create inline worker with the worker code
             const workerBlob = new Blob([`
-                // Worker constants
-                const WORLD_WIDTH = 2000;
+                // Worker code starts here
+                const WORLD_WIDTH = 10000;  // Changed from 2000 to 10000
                 const WORLD_HEIGHT = 2000;
                 const ENEMY_COUNT = 10;
                 const OBSTACLE_COUNT = 20;
@@ -732,8 +613,7 @@ class Game {
                 const RESPAWN_INVULNERABILITY_TIME = 3000;
                 const KNOCKBACK_FORCE = 100;
                 const KNOCKBACK_RECOVERY_SPEED = 0.9;
-                const HEALTH_PER_LEVEL = 10;
-                const DAMAGE_PER_LEVEL = 2;
+                const DECORATION_COUNT = 100;  // Number of palms to spawn
 
                 const ENEMY_TIERS = {
                     common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
@@ -751,6 +631,141 @@ class Game {
                 const dots = [];
                 const decorations = [];
                 const sands = [];
+
+                // Helper function to get random position in a zone
+                function getRandomPositionInZone(zoneIndex) {
+                    const zoneWidth = WORLD_WIDTH / 6;  // 6 zones
+                    const startX = zoneIndex * zoneWidth;
+                    return {
+                        x: startX + Math.random() * zoneWidth,
+                        y: Math.random() * WORLD_HEIGHT
+                    };
+                }
+
+                // Update creation functions to use zones
+                function createDecoration() {
+                    const zoneIndex = Math.floor(Math.random() * 6);  // 6 zones
+                    const pos = getRandomPositionInZone(zoneIndex);
+                    return {
+                        x: pos.x,
+                        y: pos.y,
+                        scale: 0.5 + Math.random() * 1.5
+                    };
+                }
+
+                function createEnemy() {
+                    const tierRoll = Math.random();
+                    let tier = 'common';
+                    let cumulativeProbability = 0;
+                    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
+                        cumulativeProbability += data.probability;
+                        if (tierRoll < cumulativeProbability) {
+                            tier = t;
+                            break;
+                        }
+                    }
+                    const tierData = ENEMY_TIERS[tier];
+                    
+                    // Place enemies in appropriate zones based on their tier
+                    const tierZones = {
+                        common: 0,
+                        uncommon: 1,
+                        rare: 2,
+                        epic: 3,
+                        legendary: 4,
+                        mythic: 5
+                    };
+                    const pos = getRandomPositionInZone(tierZones[tier]);
+                    
+                    return {
+                        id: Math.random().toString(36).substr(2, 9),
+                        type: Math.random() < 0.5 ? 'octopus' : 'fish',
+                        tier,
+                        x: pos.x,
+                        y: pos.y,
+                        angle: Math.random() * Math.PI * 2,
+                        health: tierData.health,
+                        speed: tierData.speed,
+                        damage: tierData.damage,
+                        knockbackX: 0,
+                        knockbackY: 0
+                    };
+                }
+
+                function createObstacle() {
+                    const zoneIndex = Math.floor(Math.random() * 6);
+                    const pos = getRandomPositionInZone(zoneIndex);
+                    const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
+                    return {
+                        id: Math.random().toString(36).substr(2, 9),
+                        x: pos.x,
+                        y: pos.y,
+                        width: 50 + Math.random() * 50,
+                        height: 50 + Math.random() * 50,
+                        type: 'coral',
+                        isEnemy,
+                        health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
+                    };
+                }
+
+                function createItem() {
+                    const zoneIndex = Math.floor(Math.random() * 6);
+                    const pos = getRandomPositionInZone(zoneIndex);
+                    return {
+                        id: Math.random().toString(36).substr(2, 9),
+                        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
+                        x: pos.x,
+                        y: pos.y
+                    };
+                }
+
+                function initializeGame(messageData) {
+                    console.log('Initializing game state in worker');
+                    
+                    // Start player in the first zone (common)
+                    players[socket.id] = {
+                        id: socket.id,
+                        x: WORLD_WIDTH / 12,  // Center of first zone
+                        y: WORLD_HEIGHT / 2,
+                        angle: 0,
+                        score: 0,
+                        velocityX: 0,
+                        velocityY: 0,
+                        health: PLAYER_MAX_HEALTH,
+                        inventory: [],
+                        isInvulnerable: true,
+                        level: 1,
+                        xp: 0,
+                        xpToNextLevel: 100,
+                        maxHealth: PLAYER_MAX_HEALTH,
+                        damage: PLAYER_DAMAGE
+                    };
+
+                    // Create game elements evenly distributed across zones
+                    for (let i = 0; i < ENEMY_COUNT; i++) {
+                        enemies.push(createEnemy());
+                    }
+
+                    for (let i = 0; i < OBSTACLE_COUNT; i++) {
+                        obstacles.push(createObstacle());
+                    }
+
+                    for (let i = 0; i < ITEM_COUNT; i++) {
+                        items.push(createItem());
+                    }
+
+                    for (let i = 0; i < DECORATION_COUNT; i++) {
+                        decorations.push(createDecoration());
+                    }
+
+                    // Emit initial state
+                    socket.emit('currentPlayers', players);
+                    socket.emit('enemiesUpdate', enemies);
+                    socket.emit('obstaclesUpdate', obstacles);
+                    socket.emit('itemsUpdate', items);
+                    socket.emit('decorationsUpdate', decorations);
+                    socket.emit('playerMoved', players[socket.id]);
+                }
 
                 // Mock Socket class implementation
                 class MockSocket {
@@ -778,97 +793,6 @@ class Game {
 
                 const socket = new MockSocket();
 
-                // Helper functions
-                function createEnemy() {
-                    const tierRoll = Math.random();
-                    let tier = 'common';
-                    let cumulativeProbability = 0;
-                    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
-                        cumulativeProbability += data.probability;
-                        if (tierRoll < cumulativeProbability) {
-                            tier = t;
-                            break;
-                        }
-                    }
-                    const tierData = ENEMY_TIERS[tier];
-                    return {
-                        id: Math.random().toString(36).substr(2, 9),
-                        type: Math.random() < 0.5 ? 'octopus' : 'fish',
-                        tier,
-                        x: Math.random() * WORLD_WIDTH,
-                        y: Math.random() * WORLD_HEIGHT,
-                        angle: Math.random() * Math.PI * 2,
-                        health: tierData.health,
-                        speed: tierData.speed,
-                        damage: tierData.damage,
-                        knockbackX: 0,
-                        knockbackY: 0
-                    };
-                }
-
-                function createObstacle() {
-                    const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
-                    return {
-                        id: Math.random().toString(36).substr(2, 9),
-                        x: Math.random() * WORLD_WIDTH,
-                        y: Math.random() * WORLD_HEIGHT,
-                        width: 50 + Math.random() * 50,
-                        height: 50 + Math.random() * 50,
-                        type: 'coral',
-                        isEnemy,
-                        health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
-                    };
-                }
-
-                function createItem() {
-                    return {
-                        id: Math.random().toString(36).substr(2, 9),
-                        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
-                        x: Math.random() * WORLD_WIDTH,
-                        y: Math.random() * WORLD_HEIGHT
-                    };
-                }
-
-                function moveEnemies() {
-                    enemies.forEach(enemy => {
-                        // ... (keep existing moveEnemies code)
-                    });
-                }
-
-                function initializeGame(messageData) {
-                    const savedProgress = messageData?.savedProgress;
-                    
-                    players[socket.id] = {
-                        id: socket.id,
-                        x: WORLD_WIDTH / 2,
-                        y: WORLD_HEIGHT / 2,
-                        angle: 0,
-                        score: 0,
-                        velocityX: 0,
-                        velocityY: 0,
-                        health: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
-                        inventory: [],
-                        isInvulnerable: true,
-                        level: savedProgress?.level || 1,
-                        xp: savedProgress?.xp || 0,
-                        xpToNextLevel: 100,
-                        maxHealth: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
-                        damage: savedProgress?.damage || PLAYER_DAMAGE
-                    };
-
-                    // Initialize game elements
-                    for (let i = 0; i < ENEMY_COUNT; i++) enemies.push(createEnemy());
-                    for (let i = 0; i < OBSTACLE_COUNT; i++) obstacles.push(createObstacle());
-                    for (let i = 0; i < ITEM_COUNT; i++) items.push(createItem());
-
-                    // Send initial state
-                    socket.emit('currentPlayers', players);
-                    socket.emit('enemiesUpdate', enemies);
-                    socket.emit('obstaclesUpdate', obstacles);
-                    socket.emit('itemsUpdate', items);
-                    socket.emit('playerMoved', players[socket.id]);
-                }
-
                 // Message handler
                 self.onmessage = function(event) {
                     const { type, event: socketEvent, data } = event.data;
@@ -880,15 +804,15 @@ class Game {
                         case 'socketEvent':
                             // Handle socket events
                             // ... (keep existing socket event handling code)
-                            break;
-                    }
-                };
+            break;
+        }
+    };
 
                 // Start enemy movement interval
-                setInterval(() => {
-                    moveEnemies();
+    setInterval(() => {
+        moveEnemies();
                     socket.emit('enemiesUpdate', enemies);
-                }, 100);
+    }, 100);
             `], { type: 'application/javascript' });
 
             // Create worker from blob
@@ -981,7 +905,7 @@ class Game {
             const existingPlayer = this.players.get(player.id);
             if (existingPlayer) {
                 Object.assign(existingPlayer, player);
-            } else {
+        } else {
                 this.players.set(player.id, {...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0, health: this.PLAYER_MAX_HEALTH});
             }
         });
@@ -1334,9 +1258,9 @@ class Game {
                 newY + 40 > obstacle.y // Assuming player height is 40
             ) {
                 collision = true;
-                break;
-            }
-        }
+                            break;
+                        }
+                    }
 
         if (!collision) {
             // Update position if no collision
@@ -1592,6 +1516,22 @@ class Game {
                 this.ctx.restore();
             });
 
+            // Draw decorations (palm trees)
+            this.decorations.forEach(decoration => {
+                this.ctx.save();
+                this.ctx.translate(decoration.x, decoration.y);
+                this.ctx.scale(decoration.scale, decoration.scale);
+                
+                // Draw palm tree
+                this.ctx.drawImage(
+                    this.palmSprite,
+                    -this.palmSprite.width / 2,
+                    -this.palmSprite.height / 2
+                );
+                
+                this.ctx.restore();
+            });
+
             // Draw players BEFORE decorations
             this.players.forEach((player, id) => {
                 this.ctx.save();
@@ -1669,22 +1609,6 @@ class Game {
                 this.ctx.fillStyle = 'white';
                 this.ctx.font = (12 * sizeMultiplier) + 'px Arial';
                 this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - healthBarWidth/2, enemy.y + enemySize/2 + 15);
-            });
-
-            // Draw decorations (palm trees) AFTER players and enemies
-            this.decorations.forEach(decoration => {
-                this.ctx.save();
-                this.ctx.translate(decoration.x, decoration.y);
-                this.ctx.scale(decoration.scale, decoration.scale);
-                
-                // Draw palm tree
-                this.ctx.drawImage(
-                    this.palmSprite,
-                    -this.palmSprite.width / 2,
-                    -this.palmSprite.height / 2
-                );
-                
-                this.ctx.restore();
             });
 
             // Draw obstacles
@@ -1834,7 +1758,7 @@ class Game {
         if (savedProgress) {
             return JSON.parse(savedProgress);
         }
-        return {
+                    return {
             level: 1,
             xp: 0,
             maxHealth: this.PLAYER_MAX_HEALTH,
@@ -1928,4 +1852,4 @@ class Game {
             }
         }
     }
-}
+                }

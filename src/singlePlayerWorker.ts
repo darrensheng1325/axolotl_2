@@ -705,4 +705,3 @@ const DROP_CHANCES = {
     legendary: 0.5,   // 50% chance
     mythic: 0.75      // 75% chance
 };
-
