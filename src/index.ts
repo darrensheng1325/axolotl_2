@@ -274,11 +274,24 @@ class Game {
                 const MAX_INVENTORY_SIZE = 5;
                 const PLAYER_SIZE = 40;
                 const COLLISION_RADIUS = PLAYER_SIZE / 2;
-                const ENEMY_SIZE = 80;
+                const ENEMY_SIZE = 40;
                 const RESPAWN_INVULNERABILITY_TIME = 3000;
-                const KNOCKBACK_FORCE = 100;
+                const KNOCKBACK_FORCE = 20;
                 const KNOCKBACK_RECOVERY_SPEED = 0.9;
                 const DECORATION_COUNT = 100;  // Number of palms to spawn
+                var BASE_XP_REQUIREMENT = 100;
+                var XP_MULTIPLIER = 1.5;
+                var MAX_LEVEL = 50;
+                var HEALTH_PER_LEVEL = 10;
+                var DAMAGE_PER_LEVEL = 2;
+                var DROP_CHANCES = {
+                    common: 0.1, // 10% chance
+                    uncommon: 0.2, // 20% chance
+                    rare: 0.3, // 30% chance
+                    epic: 0.4, // 40% chance
+                    legendary: 0.5, // 50% chance
+                    mythic: 0.75 // 75% chance
+                };
 
                 const ENEMY_TIERS = {
                     common: { health: 20, speed: 0.5, damage: 5, probability: 0.4 },
@@ -342,6 +355,41 @@ class Game {
                         mythic: 320
                     };
                     return tierMultipliers[enemy.tier];
+                }
+                function addXPToPlayer(player, xp) {
+                    if (player.level >= MAX_LEVEL)
+                        return;
+                    player.xp += xp;
+                    while (player.xp >= player.xpToNextLevel && player.level < MAX_LEVEL) {
+                        player.xp -= player.xpToNextLevel;
+                        player.level++;
+                        player.xpToNextLevel = calculateXPRequirement(player.level);
+                        handleLevelUp(player);
+                    }
+                    if (player.level >= MAX_LEVEL) {
+                        player.xp = 0;
+                        player.xpToNextLevel = 0;
+                    }
+                    socket.emit('xpGained', {
+                        playerId: player.id,
+                        xp: xp,
+                        totalXp: player.xp,
+                        level: player.level,
+                        xpToNextLevel: player.xpToNextLevel,
+                        maxHealth: player.maxHealth,
+                        damage: player.damage
+                    });
+                }
+                function handleLevelUp(player) {
+                    player.maxHealth += HEALTH_PER_LEVEL;
+                    player.health = player.maxHealth;
+                    player.damage += DAMAGE_PER_LEVEL;
+                    socket.emit('levelUp', {
+                        playerId: player.id,
+                        level: player.level,
+                        maxHealth: player.maxHealth,
+                        damage: player.damage
+                    });
                 }
                 function respawnPlayer(player) {
                     // Determine spawn zone based on player level without losing levels
