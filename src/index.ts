@@ -1622,12 +1622,11 @@ class Game {
                 // Draw UI elements above player
                 this.ctx.fillStyle = 'black';
                 this.ctx.font = '16px Arial';
-                this.ctx.fillText(`Score: ${player.score}`, player.x - 30, player.y - 30);
 
                 // Draw health bar
-                this.ctx.fillStyle = 'red';
+                this.ctx.fillStyle = 'black';
                 this.ctx.fillRect(player.x - 25, player.y - 40, 50, 5);
-                this.ctx.fillStyle = 'green';
+                this.ctx.fillStyle = 'lime';
                 this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / player.maxHealth), 5);
 
                 // Draw XP bar and level
@@ -1696,9 +1695,9 @@ class Game {
                 const healthBarWidth = 50 * sizeMultiplier;
                 
                 // Health bar
-                this.ctx.fillStyle = 'red';
+                this.ctx.fillStyle = 'black';
                 this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth, 5);
-                this.ctx.fillStyle = 'green';
+                this.ctx.fillStyle = 'lime';
                 this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth * (enemy.health / maxHealth), 5);
                 
                 // Tier text
