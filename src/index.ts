@@ -668,7 +668,7 @@ class Game {
                             ) {
                                 collision = true;
                                 console.log(enemy);
-                                if (!player.isInvulnerable) {
+                                if (true) {
                                     // Enemy damages player
                                     player.health -= enemy.damage;
                                     socket.emit('playerDamaged', { playerId: player.id, health: player.health });
