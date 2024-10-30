@@ -1,4 +1,3 @@
-export const workerBlob = new Blob([`
 // Worker code starts here
 const WORLD_WIDTH = 10000;  // Changed from 2000 to 10000
 const WORLD_HEIGHT = 2000;
@@ -365,47 +364,27 @@ function createItem() {
     };
 }
 
-function initializeGame(messageData) {
+function initializeGame(progress) {
     console.log('Initializing game state in worker');
     
-    // Extract saved progress data with defaults
-    const savedProgress = messageData.savedProgress || {};
-    const level = parseInt(savedProgress.level) || 1;
-    const xp = parseInt(savedProgress.xp) || 0;
-    
-    // Calculate stats based on level
-    const maxHealth = PLAYER_MAX_HEALTH + (HEALTH_PER_LEVEL * (level - 1));
-    const damage = PLAYER_DAMAGE + (DAMAGE_PER_LEVEL * (level - 1));
-    const xpToNextLevel = calculateXPRequirement(level);
-
     // Start player in the first zone (common)
     players[socket.id] = {
         id: socket.id,
         x: WORLD_WIDTH / 12,  // Center of first zone
         y: WORLD_HEIGHT / 2,
         angle: 0,
-        score: 0,
+        score: progress['xp'],
         velocityX: 0,
         velocityY: 0,
-        health: maxHealth,  // Start with full health
+        health: PLAYER_MAX_HEALTH,
         inventory: [],
         isInvulnerable: true,
-        level: level,
-        xp: xp,
-        xpToNextLevel: xpToNextLevel,
-        maxHealth: maxHealth,
-        damage: damage,
-        lastDamageTaken: 0,
-        isRegenerating: false
+        level: progress['level'],
+        xp: progress['xp'],
+        xpToNextLevel: 100,
+        maxHealth: progress['maxHealth'],
+        damage: progress['damage']
     };
-
-    console.log('Initialized player with stats:', {
-        level,
-        xp,
-        maxHealth,
-        damage,
-        xpToNextLevel
-    });
 
     // Ensure specific number of legendary and mythic enemies
     const legendaryCount = Math.floor(ENEMY_COUNT * 0.04);  // 4% of total
@@ -456,11 +435,6 @@ function initializeGame(messageData) {
     socket.emit('itemsUpdate', items);
     socket.emit('decorationsUpdate', decorations);
     socket.emit('playerMoved', players[socket.id]);
-}
-
-// Add the XP requirement calculation function if it's missing
-function calculateXPRequirement(level) {
-    return Math.floor(BASE_XP_REQUIREMENT * Math.pow(XP_MULTIPLIER, level - 1));
 }
 
 // Mock Socket class implementation
@@ -693,4 +667,3 @@ moveEnemies();
 console.error('Error in moveEnemies interval:', error);
 }
 }, 100);
-`], { type: 'application/javascript' });

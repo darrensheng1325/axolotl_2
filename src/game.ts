@@ -224,10 +224,15 @@ export class Game {
 
           // Initialize game
           console.log('Sending init message to worker with saved progress');
-          this.worker.postMessage({ 
-              type: 'init',
-              savedProgress
-          });
+          this.worker.postMessage({
+            type: 'init',
+            savedProgress: {
+                level: savedProgress['level'],
+                xp: savedProgress['xp'],
+                maxHealth: savedProgress['maxHealth'],
+                damage: savedProgress['damage']
+            }
+        });
 
       } catch (error) {
           console.error('Error initializing worker:', error);
