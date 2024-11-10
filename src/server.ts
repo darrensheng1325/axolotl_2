@@ -189,7 +189,6 @@ const ENEMY_TIERS = {
   mythic: { health: 150, speed: 2, damage: 30, probability: 0.01, color: '#FF0000' }
 };
 
-const ITEM_COUNT = 100;
 const MAX_INVENTORY_SIZE = 5;
 
 const RESPAWN_INVULNERABILITY_TIME = 3000; // 3 seconds of invulnerability after respawn
@@ -229,7 +228,7 @@ const ENEMY_SIZE_MULTIPLIERS = {
 
 // Add drop chances like in singleplayer
 const DROP_CHANCES = {
-    common: 0.1,      // 10% chance
+    common: 1,      // 10% chance
     uncommon: 0.2,    // 20% chance
     rare: 0.3,        // 30% chance
     epic: 0.4,        // 40% chance
@@ -397,11 +396,6 @@ for (let i = 0; i < OBSTACLE_COUNT; i++) {
   obstacles.push(createObstacle());
 }
 
-// Initialize items
-for (let i = 0; i < ITEM_COUNT; i++) {
-  items.push(createItem());
-}
-
 function respawnPlayer(player: Player) {
     // Determine spawn zone based on player level
     let spawnX;
@@ -553,15 +547,12 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 const dy = newY - item.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
-                if (distance < ITEM_PICKUP_RADIUS && player.inventory.length < MAX_INVENTORY_SIZE) {
-                    // Add item to player's inventory
+                if (distance < ITEM_PICKUP_RADIUS) {
+                    // Add item to player's inventory without size limit
                     player.inventory.push(item);
                     
                     // Remove item from world
                     items.splice(i, 1);
-                    
-                    // Create new item to maintain item count
-                    items.push(createItem());
                     
                     // Notify clients
                     socket.emit('inventoryUpdate', player.inventory);
@@ -621,20 +612,17 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                                 
                                 // Check for item drop
                                 const dropChance = DROP_CHANCES[enemy.tier];
-                                if (Math.random() < dropChance && player.inventory.length < MAX_INVENTORY_SIZE) {
+                                if (Math.random() < dropChance) {
                                     const newItem = {
                                         id: Math.random().toString(36).substr(2, 9),
                                         type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
                                         x: enemy.x,
                                         y: enemy.y
                                     };
-                                    player.inventory.push(newItem);
-                                    socket.emit('inventoryUpdate', player.inventory);
-                                    socket.emit('itemCollected', { 
-                                        playerId: player.id, 
-                                        itemId: newItem.id,
-                                        itemType: newItem.type 
-                                    });
+                                    // Add item to the world instead of player's inventory
+                                    items.push(newItem);
+                                    // Notify all clients about the new item
+                                    io.emit('itemsUpdate', items);
                                 }
 
                                 enemies.splice(index, 1);
