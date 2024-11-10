@@ -600,7 +600,7 @@ function handleLevelUp(player) {
     });
 }
 // Add these constants at the top with other constants
-const HEALTH_REGEN_RATE = 1; // Health points recovered per tick
+const HEALTH_REGEN_RATE = 5; // Health points recovered per tick
 const HEALTH_REGEN_INTERVAL = 1000; // Milliseconds between health regeneration ticks
 const HEALTH_REGEN_COMBAT_DELAY = 0; // Delay before health starts regenerating after taking damage
 // Add health regeneration interval

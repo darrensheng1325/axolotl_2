@@ -988,7 +988,7 @@ export class Game {
               
               this.ctx.restore();
 
-              // Draw player name above health bar
+              // Draw player name above player
               this.ctx.fillStyle = 'white';
               this.ctx.strokeStyle = 'black';
               this.ctx.lineWidth = 2;
@@ -1001,28 +1001,52 @@ export class Game {
               // Draw text fill
               this.ctx.fillText(nameText, player.x, player.y - 50);
 
-              // Draw health bar
-              this.ctx.fillStyle = 'black';
-              this.ctx.fillRect(player.x - 25, player.y - 40, 50, 5);
-              this.ctx.fillStyle = 'lime';
-              this.ctx.fillRect(player.x - 25, player.y - 40, 50 * (player.health / player.maxHealth), 5);
-
-              // Draw XP bar and level
-              if (player.level < this.MAX_LEVEL) {
-                  const xpBarWidth = 50;
-                  const xpBarHeight = 3;
-                  const xpPercentage = player.xp / player.xpToNextLevel;
+              // Draw stats on the left side if this is the current player
+              if (id === this.socket?.id) {
+                  // Save the current transform
+                  this.ctx.save();
                   
-                  this.ctx.fillStyle = '#4169E1';
-                  this.ctx.fillRect(player.x - 25, player.y - 45, xpBarWidth, xpBarHeight);
-                  this.ctx.fillStyle = '#00FFFF';
-                  this.ctx.fillRect(player.x - 25, player.y - 45, xpBarWidth * xpPercentage, xpBarHeight);
-              }
+                  // Reset transform for UI elements
+                  this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+                  
+                  const statsX = 20;  // Distance from left edge
+                  const statsY = 100; // Distance from top
+                  const barWidth = 200; // Wider bars
+                  const barHeight = 20; // Taller bars
+                  const spacing = 30;  // Space between elements
 
-              // Draw level
-              this.ctx.fillStyle = '#FFD700';
-              this.ctx.font = '12px Arial';
-              this.ctx.fillText('Lv.' + player.level, player.x - 25, player.y - 55);
+                  // Draw health bar
+                  this.ctx.fillStyle = 'black';
+                  this.ctx.fillRect(statsX, statsY, barWidth, barHeight);
+                  this.ctx.fillStyle = 'lime';
+                  this.ctx.fillRect(statsX, statsY, barWidth * (player.health / player.maxHealth), barHeight);
+                  
+                  // Draw health text
+                  this.ctx.fillStyle = 'white';
+                  this.ctx.font = '16px Arial';
+                  this.ctx.textAlign = 'left';
+                  this.ctx.fillText(`Health: ${Math.round(player.health)}/${player.maxHealth}`, statsX + 5, statsY + 15);
+
+                  // Draw XP bar
+                  if (player.level < this.MAX_LEVEL) {
+                      this.ctx.fillStyle = '#4169E1';
+                      this.ctx.fillRect(statsX, statsY + spacing, barWidth, barHeight);
+                      this.ctx.fillStyle = '#00FFFF';
+                      this.ctx.fillRect(statsX, statsY + spacing, barWidth * (player.xp / player.xpToNextLevel), barHeight);
+                      
+                      // Draw XP text
+                      this.ctx.fillStyle = 'white';
+                      this.ctx.fillText(`XP: ${player.xp}/${player.xpToNextLevel}`, statsX + 5, statsY + spacing + 15);
+                  }
+
+                  // Draw level
+                  this.ctx.fillStyle = '#FFD700';
+                  this.ctx.font = '20px Arial';
+                  this.ctx.fillText(`Level ${player.level}`, statsX, statsY - 10);
+
+                  // Restore the transform
+                  this.ctx.restore();
+              }
           });
 
           // Draw enemies
