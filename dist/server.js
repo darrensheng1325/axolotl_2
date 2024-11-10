@@ -114,10 +114,10 @@ const ENEMY_CORAL_HEALTH = 50;
 const ENEMY_CORAL_DAMAGE = 5;
 const PLAYER_MAX_HEALTH = 100;
 const ENEMY_MAX_HEALTH = 50;
-const PLAYER_DAMAGE = 1;
+const PLAYER_DAMAGE = 5;
 const ENEMY_DAMAGE = 20;
 const ENEMY_TIERS = {
-    common: { health: 20, speed: 0.5, damage: 5, probability: 0.4, color: '#808080' },
+    common: { health: 5, speed: 0.5, damage: 5, probability: 0.4, color: '#808080' },
     uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3, color: '#008000' },
     rare: { health: 60, speed: 1, damage: 15, probability: 0.15, color: '#0000FF' },
     epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1, color: '#800080' },
@@ -192,9 +192,14 @@ function createEnemy() {
         knockbackY: 0
     };
 }
+// Add these constants at the top with the others
+const FISH_DETECTION_RADIUS = 500; // How far fish can detect players
+const PLAYER_BASE_SPEED = 5; // Base player speed to match
+const FISH_RETURN_SPEED = 0.5; // Speed at which fish return to their normal behavior
+// Update the moveEnemies function
 function moveEnemies() {
     enemies.forEach(enemy => {
-        // Apply knockback recovery
+        // Apply knockback if it exists
         if (enemy.knockbackX) {
             enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
             enemy.x += enemy.knockbackX;
@@ -207,16 +212,59 @@ function moveEnemies() {
             if (Math.abs(enemy.knockbackY) < 0.1)
                 enemy.knockbackY = 0;
         }
-        // Regular movement
+        // Find nearest player for fish behavior
+        let nearestPlayer;
+        let nearestDistance = Infinity;
+        const playerArray = Object.values(players);
+        playerArray.forEach(player => {
+            const dx = player.x - enemy.x;
+            const dy = player.y - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            nearestDistance = distance;
+            nearestPlayer = player;
+        });
+        // Different movement patterns based on enemy type
         if (enemy.type === 'octopus') {
-            enemy.x += (Math.random() * 4 - 2) * enemy.speed;
-            enemy.y += (Math.random() * 4 - 2) * enemy.speed;
+            // Random movement for octopus
+            enemy.x += (Math.random() * 4 - 2) * (enemy.speed || 1);
+            enemy.y += (Math.random() * 4 - 2) * (enemy.speed || 1);
         }
         else {
-            enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
-            enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
+            // Fish behavior
+            if (nearestPlayer) {
+                if (nearestDistance < FISH_DETECTION_RADIUS) {
+                    // Fish detected player - match player speed
+                    const dx = nearestPlayer.x - enemy.x;
+                    const dy = nearestPlayer.y - enemy.y;
+                    const angle = Math.atan2(dy, dx);
+                    // Update enemy angle for proper facing direction
+                    enemy.angle = angle;
+                    // Calculate chase speed based on player's current speed
+                    const playerSpeed = 16;
+                    // Match player speed but consider enemy tier for slight variations
+                    const tierSpeedMultiplier = ENEMY_TIERS[enemy.tier].speed;
+                    const chaseSpeed = playerSpeed * tierSpeedMultiplier;
+                    // Move towards player matching their speed
+                    enemy.x += Math.cos(angle) * chaseSpeed;
+                    enemy.y += Math.sin(angle) * chaseSpeed;
+                    // Mark fish as hostile
+                    enemy.isHostile = true;
+                }
+                else {
+                    // Normal fish behavior
+                    enemy.isHostile = false;
+                    // Return to normal speed gradually
+                    const normalSpeed = ENEMY_TIERS[enemy.tier].speed * 2;
+                    enemy.x += Math.cos(enemy.angle || 0) * normalSpeed;
+                    enemy.y += Math.sin(enemy.angle || 0) * normalSpeed;
+                    // Randomly change direction occasionally
+                    if (Math.random() < 0.02) {
+                        enemy.angle = Math.random() * Math.PI * 2;
+                    }
+                }
+            }
         }
-        // Keep enemy within its zone boundaries
+        // Keep enemies in their respective zones
         const zone = ZONE_BOUNDARIES[enemy.tier];
         if (enemy.x < zone.start || enemy.x >= zone.end) {
             // Reverse direction if exiting zone
@@ -227,10 +275,8 @@ function moveEnemies() {
         }
         // Wrap around only for Y axis
         enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
-        if (enemy.type === 'fish' && Math.random() < 0.02) {
-            enemy.angle = Math.random() * Math.PI * 2;
-        }
     });
+    io.emit('enemiesUpdate', enemies);
 }
 function createObstacle() {
     const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
