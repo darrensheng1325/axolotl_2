@@ -98,3 +98,17 @@ body {
     font-size: 1.5rem;
     margin-top: 0px;
 }
+
+.auth-form.hidden {
+    display: none;
+}
+
+.auth-form input[type="password"] {
+    margin-bottom: 0.5rem;
+}
+
+.auth-form .error {
+    color: red;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
