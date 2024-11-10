@@ -1,32 +1,61 @@
 import Database from 'better-sqlite3';
+import { Item } from './item';
 
 const db = new Database('game.db');
 
-// Initialize database with required tables
+// Initialize database with schema version tracking
 db.exec(`
-    CREATE TABLE IF NOT EXISTS players (
-        id TEXT PRIMARY KEY,
-        userId TEXT NOT NULL,
-        level INTEGER DEFAULT 1,
-        xp INTEGER DEFAULT 0,
-        maxHealth INTEGER DEFAULT 100,
-        damage INTEGER DEFAULT 10,
-        lastSeen DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY
     );
 `);
+
+// Check current schema version
+const currentVersion = db.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined;
+const LATEST_VERSION = 1;
+
+if (!currentVersion) {
+    // First time setup
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS players (
+            id TEXT PRIMARY KEY,
+            userId TEXT NOT NULL,
+            level INTEGER DEFAULT 1,
+            xp INTEGER DEFAULT 0,
+            maxHealth INTEGER DEFAULT 100,
+            damage INTEGER DEFAULT 10,
+            inventory TEXT DEFAULT '[]',
+            lastSeen DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO schema_version (version) VALUES (${LATEST_VERSION});
+    `);
+} else if (currentVersion.version < LATEST_VERSION) {
+    // Handle migrations
+    if (currentVersion.version < 1) {
+        // Add inventory column if it doesn't exist
+        db.exec(`
+            ALTER TABLE players ADD COLUMN inventory TEXT DEFAULT '[]';
+        `);
+    }
+    
+    // Update schema version
+    db.prepare('UPDATE schema_version SET version = ?').run(LATEST_VERSION);
+}
 
 export interface PlayerProgress {
     level: number;
     xp: number;
     maxHealth: number;
     damage: number;
+    inventory?: Item[];
 }
 
 export interface User {
@@ -61,22 +90,50 @@ export const database = {
     // Player-related functions
     savePlayer: (playerId: string, userId: string, progress: PlayerProgress) => {
         const stmt = db.prepare(`
-            INSERT OR REPLACE INTO players (id, userId, level, xp, maxHealth, damage, lastSeen)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT OR REPLACE INTO players (
+                id, userId, level, xp, maxHealth, damage, inventory, lastSeen
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
-        stmt.run(playerId, userId, progress.level, progress.xp, progress.maxHealth, progress.damage);
+        stmt.run(
+            playerId,
+            userId,
+            progress.level,
+            progress.xp,
+            progress.maxHealth,
+            progress.damage,
+            JSON.stringify(progress.inventory || [])
+        );
     },
 
     getPlayer: (playerId: string): PlayerProgress | null => {
-        const stmt = db.prepare('SELECT level, xp, maxHealth, damage FROM players WHERE id = ?');
-        const result = stmt.get(playerId) as PlayerProgress | undefined;
-        return result || null;
+        const stmt = db.prepare('SELECT level, xp, maxHealth, damage, inventory FROM players WHERE id = ?');
+        const result = stmt.get(playerId) as any;
+        if (result) {
+            return {
+                level: result.level,
+                xp: result.xp,
+                maxHealth: result.maxHealth,
+                damage: result.damage,
+                inventory: JSON.parse(result.inventory || '[]')
+            };
+        }
+        return null;
     },
 
     getPlayerByUserId: (userId: string): PlayerProgress | null => {
-        const stmt = db.prepare('SELECT level, xp, maxHealth, damage FROM players WHERE userId = ?');
-        const result = stmt.get(userId) as PlayerProgress | undefined;
-        return result || null;
+        const stmt = db.prepare('SELECT level, xp, maxHealth, damage, inventory FROM players WHERE userId = ?');
+        const result = stmt.get(userId) as any;
+        if (result) {
+            return {
+                level: result.level,
+                xp: result.xp,
+                maxHealth: result.maxHealth,
+                damage: result.damage,
+                inventory: JSON.parse(result.inventory || '[]')
+            };
+        }
+        return null;
     },
 
     cleanupOldPlayers: (daysOld: number = 30) => {

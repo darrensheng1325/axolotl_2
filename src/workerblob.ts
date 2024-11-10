@@ -23,7 +23,6 @@ const KNOCKBACK_RECOVERY_SPEED = 0.9;
 const DECORATION_COUNT = 100;  // Number of palms to spawn
 var BASE_XP_REQUIREMENT = 100;
 var XP_MULTIPLIER = 1.5;
-var MAX_LEVEL = 50;
 var HEALTH_PER_LEVEL = 10;
 var DAMAGE_PER_LEVEL = 2;
 var DROP_CHANCES = {
@@ -99,18 +98,12 @@ function getXPFromEnemy(enemy) {
     return tierMultipliers[enemy.tier];
 }
 function addXPToPlayer(player, xp) {
-    if (player.level >= MAX_LEVEL)
-        return;
     player.xp += xp;
-    while (player.xp >= player.xpToNextLevel && player.level < MAX_LEVEL) {
+    while (player.xp >= player.xpToNextLevel) {
         player.xp -= player.xpToNextLevel;
         player.level++;
         player.xpToNextLevel = calculateXPRequirement(player.level);
         handleLevelUp(player);
-    }
-    if (player.level >= MAX_LEVEL) {
-        player.xp = 0;
-        player.xpToNextLevel = 0;
     }
     socket.emit('xpGained', {
         playerId: player.id,

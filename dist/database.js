@@ -15,6 +15,7 @@ db.exec(`
         xp INTEGER DEFAULT 0,
         maxHealth INTEGER DEFAULT 100,
         damage INTEGER DEFAULT 10,
+        inventory TEXT DEFAULT '[]',
         lastSeen DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -49,20 +50,40 @@ exports.database = {
     // Player-related functions
     savePlayer: (playerId, userId, progress) => {
         const stmt = db.prepare(`
-            INSERT OR REPLACE INTO players (id, userId, level, xp, maxHealth, damage, lastSeen)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT OR REPLACE INTO players (
+                id, userId, level, xp, maxHealth, damage, inventory, lastSeen
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
-        stmt.run(playerId, userId, progress.level, progress.xp, progress.maxHealth, progress.damage);
+        stmt.run(playerId, userId, progress.level, progress.xp, progress.maxHealth, progress.damage, JSON.stringify(progress.inventory || []));
     },
     getPlayer: (playerId) => {
-        const stmt = db.prepare('SELECT level, xp, maxHealth, damage FROM players WHERE id = ?');
+        const stmt = db.prepare('SELECT level, xp, maxHealth, damage, inventory FROM players WHERE id = ?');
         const result = stmt.get(playerId);
-        return result || null;
+        if (result) {
+            return {
+                level: result.level,
+                xp: result.xp,
+                maxHealth: result.maxHealth,
+                damage: result.damage,
+                inventory: JSON.parse(result.inventory || '[]')
+            };
+        }
+        return null;
     },
     getPlayerByUserId: (userId) => {
-        const stmt = db.prepare('SELECT level, xp, maxHealth, damage FROM players WHERE userId = ?');
+        const stmt = db.prepare('SELECT level, xp, maxHealth, damage, inventory FROM players WHERE userId = ?');
         const result = stmt.get(userId);
-        return result || null;
+        if (result) {
+            return {
+                level: result.level,
+                xp: result.xp,
+                maxHealth: result.maxHealth,
+                damage: result.damage,
+                inventory: JSON.parse(result.inventory || '[]')
+            };
+        }
+        return null;
     },
     cleanupOldPlayers: (daysOld = 30) => {
         const stmt = db.prepare(`

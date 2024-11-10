@@ -132,7 +132,6 @@ const KNOCKBACK_RECOVERY_SPEED = 0.9; // How quickly the knockback effect dimini
 // Add XP-related constants
 const BASE_XP_REQUIREMENT = 100;
 const XP_MULTIPLIER = 1.5;
-const MAX_LEVEL = 50;
 const HEALTH_PER_LEVEL = 10;
 const DAMAGE_PER_LEVEL = 2;
 const PLAYER_SIZE = 40;
@@ -362,12 +361,14 @@ io.on('connection', (socket) => {
                 health: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.maxHealth) || PLAYER_MAX_HEALTH,
                 maxHealth: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.maxHealth) || PLAYER_MAX_HEALTH,
                 damage: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.damage) || PLAYER_DAMAGE,
-                inventory: [],
+                inventory: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.inventory) || [],
                 isInvulnerable: true,
                 level: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1,
                 xp: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.xp) || 0,
                 xpToNextLevel: calculateXPRequirement((savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1)
             };
+            // Save initial state
+            savePlayerProgress(players[socket.id], user.id);
             // Remove initial invulnerability after the specified time
             setTimeout(() => {
                 if (players[socket.id]) {
@@ -404,21 +405,6 @@ io.on('connection', (socket) => {
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
     });
-    // Update the savePlayerProgress function
-    function savePlayerProgress(player, userId) {
-        if (userId) {
-            database_1.database.savePlayer(player.id, userId, {
-                level: player.level,
-                xp: player.xp,
-                maxHealth: player.maxHealth,
-                damage: player.damage
-            });
-        }
-        else {
-            // Handle case where userId is not provided (legacy support)
-            console.warn('Attempting to save player progress without userId');
-        }
-    }
     socket.on('playerMovement', (movementData) => {
         const player = players[socket.id];
         if (player) {
@@ -570,18 +556,12 @@ io.on('connection', (socket) => {
     // Add save handler for when players gain XP or level up
     // Update the addXPToPlayer function to save progress
     function addXPToPlayer(player, xp) {
-        if (player.level >= MAX_LEVEL)
-            return;
         player.xp += xp;
-        while (player.xp >= player.xpToNextLevel && player.level < MAX_LEVEL) {
+        while (player.xp >= player.xpToNextLevel) {
             player.xp -= player.xpToNextLevel;
             player.level++;
             player.xpToNextLevel = calculateXPRequirement(player.level);
             handleLevelUp(player);
-        }
-        if (player.level >= MAX_LEVEL) {
-            player.xp = 0;
-            player.xpToNextLevel = 0;
         }
         // Save progress after XP gain using the socket's userId
         if (socket.userId) {
@@ -664,3 +644,34 @@ setInterval(() => {
         }
     });
 }, HEALTH_REGEN_INTERVAL);
+// Move savePlayerProgress outside the socket connection handler
+function savePlayerProgress(player, userId) {
+    if (userId) {
+        // Save complete player state including inventory
+        database_1.database.savePlayer(player.id, userId, {
+            level: player.level,
+            xp: player.xp,
+            maxHealth: player.maxHealth,
+            damage: player.damage,
+            inventory: player.inventory // Add inventory to saved data
+        });
+        console.log('Saved player progress:', {
+            userId,
+            level: player.level,
+            xp: player.xp,
+            maxHealth: player.maxHealth,
+            damage: player.damage,
+            inventory: player.inventory
+        });
+    }
+}
+// Add periodic saving
+const SAVE_INTERVAL = 60000; // Save every minute
+setInterval(() => {
+    Object.entries(players).forEach(([socketId, player]) => {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket && socket.userId) {
+            savePlayerProgress(player, socket.userId);
+        }
+    });
+}, SAVE_INTERVAL);
