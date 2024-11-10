@@ -48,9 +48,9 @@ const dots = [];
 const enemies = [];
 const obstacles = [];
 const items = [];
-const WORLD_WIDTH = 2000;
+const WORLD_WIDTH = 10000;
 const WORLD_HEIGHT = 2000;
-const ENEMY_COUNT = 10;
+const ENEMY_COUNT = 500;
 const OBSTACLE_COUNT = 20;
 const ENEMY_CORAL_PROBABILITY = 0.3;
 const ENEMY_CORAL_HEALTH = 50;
@@ -71,15 +71,51 @@ const ITEM_COUNT = 10;
 const MAX_INVENTORY_SIZE = 5;
 const RESPAWN_INVULNERABILITY_TIME = 3000; // 3 seconds of invulnerability after respawn
 // Add knockback constants at the top with other constants
-const KNOCKBACK_FORCE = 100; // Increased from 20 to 100
+const KNOCKBACK_FORCE = 20; // Increased from 20 to 100
 const KNOCKBACK_RECOVERY_SPEED = 0.9; // How quickly the knockback effect diminishes
+// Add XP-related constants
+const BASE_XP_REQUIREMENT = 100;
+const XP_MULTIPLIER = 1.5;
+const MAX_LEVEL = 50;
+const HEALTH_PER_LEVEL = 10;
+const DAMAGE_PER_LEVEL = 2;
+const PLAYER_SIZE = 40;
+const ENEMY_SIZE = 40;
+// Define zone boundaries for different tiers
+const ZONE_BOUNDARIES = {
+    common: { start: 0, end: 2000 },
+    uncommon: { start: 2000, end: 4000 },
+    rare: { start: 4000, end: 6000 },
+    epic: { start: 6000, end: 8000 },
+    legendary: { start: 8000, end: 9000 },
+    mythic: { start: 9000, end: WORLD_WIDTH }
+};
+// Add enemy size multipliers like in singleplayer
+const ENEMY_SIZE_MULTIPLIERS = {
+    common: 1.0,
+    uncommon: 1.2,
+    rare: 1.4,
+    epic: 1.6,
+    legendary: 1.8,
+    mythic: 2.0
+};
+// Add drop chances like in singleplayer
+const DROP_CHANCES = {
+    common: 0.1, // 10% chance
+    uncommon: 0.2, // 20% chance
+    rare: 0.3, // 30% chance
+    epic: 0.4, // 40% chance
+    legendary: 0.5, // 50% chance
+    mythic: 0.75 // 75% chance
+};
+// Update createEnemy to ensure enemies spawn in their correct zones
 function createEnemy() {
-    const tierRoll = Math.random();
-    let tier = 'common'; // Initialize with a default value
-    let cumulativeProbability = 0;
-    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
-        cumulativeProbability += data.probability;
-        if (tierRoll < cumulativeProbability) {
+    // First, decide the x position
+    const x = Math.random() * WORLD_WIDTH;
+    // Determine tier based on x position
+    let tier = 'common';
+    for (const [t, zone] of Object.entries(ZONE_BOUNDARIES)) {
+        if (x >= zone.start && x < zone.end) {
             tier = t;
             break;
         }
@@ -88,8 +124,8 @@ function createEnemy() {
     return {
         id: Math.random().toString(36).substr(2, 9),
         type: Math.random() < 0.5 ? 'octopus' : 'fish',
-        tier: tier,
-        x: Math.random() * WORLD_WIDTH,
+        tier,
+        x: x, // Use the determined x position
         y: Math.random() * WORLD_HEIGHT,
         angle: Math.random() * Math.PI * 2,
         health: tierData.health,
@@ -123,8 +159,16 @@ function moveEnemies() {
             enemy.x += Math.cos(enemy.angle) * 2 * enemy.speed;
             enemy.y += Math.sin(enemy.angle) * 2 * enemy.speed;
         }
-        // Wrap around the world
-        enemy.x = (enemy.x + WORLD_WIDTH) % WORLD_WIDTH;
+        // Keep enemy within its zone boundaries
+        const zone = ZONE_BOUNDARIES[enemy.tier];
+        if (enemy.x < zone.start || enemy.x >= zone.end) {
+            // Reverse direction if exiting zone
+            if (enemy.type === 'fish') {
+                enemy.angle = Math.PI - enemy.angle; // Reverse direction
+            }
+            enemy.x = Math.max(zone.start, Math.min(zone.end - 1, enemy.x));
+        }
+        // Wrap around only for Y axis
         enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
         if (enemy.type === 'fish' && Math.random() < 0.02) {
             enemy.angle = Math.random() * Math.PI * 2;
@@ -165,31 +209,55 @@ for (let i = 0; i < ITEM_COUNT; i++) {
     items.push(createItem());
 }
 function respawnPlayer(player) {
-    player.health = PLAYER_MAX_HEALTH;
-    player.x = Math.random() * WORLD_WIDTH;
+    // Determine spawn zone based on player level
+    let spawnX;
+    if (player.level <= 5) {
+        spawnX = Math.random() * ZONE_BOUNDARIES.common.end;
+    }
+    else if (player.level <= 10) {
+        spawnX = ZONE_BOUNDARIES.uncommon.start + Math.random() * (ZONE_BOUNDARIES.uncommon.end - ZONE_BOUNDARIES.uncommon.start);
+    }
+    else if (player.level <= 15) {
+        spawnX = ZONE_BOUNDARIES.rare.start + Math.random() * (ZONE_BOUNDARIES.rare.end - ZONE_BOUNDARIES.rare.start);
+    }
+    else if (player.level <= 25) {
+        spawnX = ZONE_BOUNDARIES.epic.start + Math.random() * (ZONE_BOUNDARIES.epic.end - ZONE_BOUNDARIES.epic.start);
+    }
+    else if (player.level <= 40) {
+        spawnX = ZONE_BOUNDARIES.legendary.start + Math.random() * (ZONE_BOUNDARIES.legendary.end - ZONE_BOUNDARIES.legendary.start);
+    }
+    else {
+        spawnX = ZONE_BOUNDARIES.mythic.start + Math.random() * (ZONE_BOUNDARIES.mythic.end - ZONE_BOUNDARIES.mythic.start);
+    }
+    player.health = player.maxHealth;
+    player.x = spawnX;
     player.y = Math.random() * WORLD_HEIGHT;
-    player.score = Math.max(0, player.score - 10); // Penalty for dying
-    player.inventory = []; // Clear inventory on death
+    player.score = Math.max(0, player.score - 10);
+    player.inventory = [];
     player.isInvulnerable = true;
-    // Remove invulnerability after the specified time
     setTimeout(() => {
         player.isInvulnerable = false;
     }, RESPAWN_INVULNERABILITY_TIME);
 }
 io.on('connection', (socket) => {
     console.log('A user connected');
-    // Initialize new player
+    // Initialize new player with level properties
     players[socket.id] = {
         id: socket.id,
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
+        x: 200, // Start near the left edge
+        y: WORLD_HEIGHT / 2,
         angle: 0,
         score: 0,
         velocityX: 0,
         velocityY: 0,
         health: PLAYER_MAX_HEALTH,
+        maxHealth: PLAYER_MAX_HEALTH,
+        damage: PLAYER_DAMAGE,
         inventory: [],
-        isInvulnerable: true
+        isInvulnerable: true,
+        level: 1,
+        xp: 0,
+        xpToNextLevel: calculateXPRequirement(1)
     };
     // Remove initial invulnerability after the specified time
     setTimeout(() => {
@@ -210,8 +278,8 @@ io.on('connection', (socket) => {
     socket.on('playerMovement', (movementData) => {
         const player = players[socket.id];
         if (player) {
-            let newX = Math.max(0, Math.min(WORLD_WIDTH, movementData.x));
-            let newY = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y));
+            let newX = movementData.x; // Don't clamp position yet
+            let newY = movementData.y;
             // Apply knockback to player position if it exists
             if (player.knockbackX) {
                 player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
@@ -225,40 +293,21 @@ io.on('connection', (socket) => {
                 if (Math.abs(player.knockbackY) < 0.1)
                     player.knockbackY = 0;
             }
-            // Check collision with obstacles and enemies
             let collision = false;
-            // Check obstacles
-            for (const obstacle of obstacles) {
-                if (newX < obstacle.x + obstacle.width &&
-                    newX + 40 > obstacle.x &&
-                    newY < obstacle.y + obstacle.height &&
-                    newY + 40 > obstacle.y) {
-                    collision = true;
-                    if (obstacle.isEnemy && !player.isInvulnerable) {
-                        player.health -= ENEMY_CORAL_DAMAGE;
-                        io.emit('playerDamaged', { playerId: player.id, health: player.health });
-                        if (player.health <= 0) {
-                            respawnPlayer(player);
-                            io.emit('playerDied', player.id);
-                            io.emit('playerRespawned', player);
-                        }
-                    }
-                    break;
-                }
-            }
-            // Check enemies
+            // Check collision with enemies first
             for (const enemy of enemies) {
-                if (newX < enemy.x + 40 &&
-                    newX + 40 > enemy.x &&
-                    newY < enemy.y + 40 &&
-                    newY + 40 > enemy.y) {
+                const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+                if (newX < enemy.x + enemySize &&
+                    newX + PLAYER_SIZE > enemy.x &&
+                    newY < enemy.y + enemySize &&
+                    newY + PLAYER_SIZE > enemy.y) {
                     collision = true;
                     if (!player.isInvulnerable) {
                         // Enemy damages player
                         player.health -= enemy.damage;
                         io.emit('playerDamaged', { playerId: player.id, health: player.health });
                         // Player damages enemy
-                        enemy.health -= PLAYER_DAMAGE;
+                        enemy.health -= player.damage;
                         io.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
                         // Calculate knockback direction
                         const dx = enemy.x - newX;
@@ -266,10 +315,10 @@ io.on('connection', (socket) => {
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         const normalizedDx = dx / distance;
                         const normalizedDy = dy / distance;
-                        // Apply stronger knockback to player's position immediately
+                        // Apply knockback to player's position immediately
                         newX -= normalizedDx * KNOCKBACK_FORCE;
                         newY -= normalizedDy * KNOCKBACK_FORCE;
-                        // Store stronger knockback for gradual recovery
+                        // Store knockback for gradual recovery
                         player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
                         player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
                         // Check if enemy dies
@@ -286,19 +335,20 @@ io.on('connection', (socket) => {
                             respawnPlayer(player);
                             io.emit('playerDied', player.id);
                             io.emit('playerRespawned', player);
+                            return;
                         }
                     }
                     break;
                 }
             }
-            if (!collision) {
-                player.x = newX;
-                player.y = newY;
-                player.angle = movementData.angle;
-                player.velocityX = movementData.velocityX;
-                player.velocityY = movementData.velocityY;
-                socket.broadcast.emit('playerMoved', player);
-            }
+            // Update player position even if there was a collision (to apply knockback)
+            player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+            player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+            player.angle = movementData.angle;
+            player.velocityX = movementData.velocityX;
+            player.velocityY = movementData.velocityY;
+            // Always emit the updated position
+            io.emit('playerMoved', player);
         }
     });
     socket.on('collectDot', (dotIndex) => {
@@ -361,3 +411,18 @@ setInterval(() => {
 httpsServer.listen(PORT, () => {
     console.log(`Server is running on https://localhost:${PORT}`);
 });
+// Add XP calculation functions
+function calculateXPRequirement(level) {
+    return Math.floor(BASE_XP_REQUIREMENT * Math.pow(XP_MULTIPLIER, level - 1));
+}
+function getXPFromEnemy(enemy) {
+    const tierMultipliers = {
+        common: 10,
+        uncommon: 20,
+        rare: 40,
+        epic: 80,
+        legendary: 160,
+        mythic: 320
+    };
+    return tierMultipliers[enemy.tier];
+}
