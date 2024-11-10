@@ -6,26 +6,50 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.database = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const db = new better_sqlite3_1.default('game.db');
-// Initialize database with required tables
+// Initialize database with schema version tracking
 db.exec(`
-    CREATE TABLE IF NOT EXISTS players (
-        id TEXT PRIMARY KEY,
-        userId TEXT NOT NULL,
-        level INTEGER DEFAULT 1,
-        xp INTEGER DEFAULT 0,
-        maxHealth INTEGER DEFAULT 100,
-        damage INTEGER DEFAULT 10,
-        inventory TEXT DEFAULT '[]',
-        lastSeen DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY
     );
 `);
+// Check current schema version
+const currentVersion = db.prepare('SELECT version FROM schema_version').get();
+const LATEST_VERSION = 1;
+if (!currentVersion) {
+    // First time setup
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS players (
+            id TEXT PRIMARY KEY,
+            userId TEXT NOT NULL,
+            level INTEGER DEFAULT 1,
+            xp INTEGER DEFAULT 0,
+            maxHealth INTEGER DEFAULT 100,
+            damage INTEGER DEFAULT 10,
+            inventory TEXT DEFAULT '[]',
+            lastSeen DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO schema_version (version) VALUES (${LATEST_VERSION});
+    `);
+}
+else if (currentVersion.version < LATEST_VERSION) {
+    // Handle migrations
+    if (currentVersion.version < 1) {
+        // Add inventory column if it doesn't exist
+        db.exec(`
+            ALTER TABLE players ADD COLUMN inventory TEXT DEFAULT '[]';
+        `);
+    }
+    // Update schema version
+    db.prepare('UPDATE schema_version SET version = ?').run(LATEST_VERSION);
+}
 exports.database = {
     // User-related functions
     createUser: (username, password) => {
