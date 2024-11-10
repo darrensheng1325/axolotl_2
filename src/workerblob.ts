@@ -517,6 +517,35 @@ case 'playerMovement':
             if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
         }
 
+        // Check for item collisions
+        const ITEM_PICKUP_RADIUS = 40;  // Radius for item pickup
+        for (let i = items.length - 1; i >= 0; i--) {
+            const item = items[i];
+            const dx = newX - item.x;
+            const dy = newY - item.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < ITEM_PICKUP_RADIUS && player.inventory.length < MAX_INVENTORY_SIZE) {
+                // Add item to player's inventory
+                player.inventory.push(item);
+                
+                // Remove item from world
+                items.splice(i, 1);
+                
+                // Create new item to maintain item count
+                items.push(createItem());
+                
+                // Notify clients
+                socket.emit('inventoryUpdate', player.inventory);
+                socket.emit('itemCollected', { 
+                    playerId: socket.id, 
+                    itemId: item.id 
+                });
+                socket.emit('itemsUpdate', items);
+            }
+        }
+
+        // Rest of the existing collision checks...
         let collision = false;
 
         // Check collision with enemies first
@@ -627,15 +656,14 @@ case 'playerMovement':
             }
         }
 
-        // Update player position
-        // Even if there was a collision, we want to apply the knockback
+        // Update player position even if there was a collision (to apply knockback)
         player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
         player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
         player.angle = data.angle;
         player.velocityX = data.velocityX;
         player.velocityY = data.velocityY;
 
-        // Always emit the player's position
+        // Always emit the updated position
         socket.emit('playerMoved', player);
         if (player.health < player.maxHealth) {
             player.health += 0.1;

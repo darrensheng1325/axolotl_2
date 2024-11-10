@@ -189,7 +189,7 @@ const ENEMY_TIERS = {
   mythic: { health: 150, speed: 2, damage: 30, probability: 0.01, color: '#FF0000' }
 };
 
-const ITEM_COUNT = 10;
+const ITEM_COUNT = 100;
 const MAX_INVENTORY_SIZE = 5;
 
 const RESPAWN_INVULNERABILITY_TIME = 3000; // 3 seconds of invulnerability after respawn
@@ -530,7 +530,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
     socket.on('playerMovement', (movementData) => {
         const player = players[socket.id];
         if (player) {
-            let newX = movementData.x;  // Don't clamp position yet
+            let newX = movementData.x;
             let newY = movementData.y;
 
             // Apply knockback to player position if it exists
@@ -543,6 +543,34 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
                 newY += player.knockbackY;
                 if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
+            }
+
+            // Check for item collisions
+            const ITEM_PICKUP_RADIUS = 40;  // Radius for item pickup
+            for (let i = items.length - 1; i >= 0; i--) {
+                const item = items[i];
+                const dx = newX - item.x;
+                const dy = newY - item.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < ITEM_PICKUP_RADIUS && player.inventory.length < MAX_INVENTORY_SIZE) {
+                    // Add item to player's inventory
+                    player.inventory.push(item);
+                    
+                    // Remove item from world
+                    items.splice(i, 1);
+                    
+                    // Create new item to maintain item count
+                    items.push(createItem());
+                    
+                    // Notify clients
+                    socket.emit('inventoryUpdate', player.inventory);
+                    io.emit('itemCollected', { 
+                        playerId: socket.id, 
+                        itemId: item.id 
+                    });
+                    io.emit('itemsUpdate', items);
+                }
             }
 
             let collision = false;
@@ -649,20 +677,6 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 x: Math.random() * 800,
                 y: Math.random() * 600
             });
-        }
-    });
-
-    socket.on('collectItem', (itemId: string) => {
-        const player = players[socket.id];
-        const itemIndex = items.findIndex(item => item.id === itemId);
-        if (itemIndex !== -1 && player.inventory.length < MAX_INVENTORY_SIZE) {
-            const item = items[itemIndex];
-            player.inventory.push(item);
-            items.splice(itemIndex, 1);
-            socket.emit('inventoryUpdate', player.inventory);
-            io.emit('itemCollected', { playerId: socket.id, itemId });
-            items.push(createItem()); // Replace the collected item
-            io.emit('itemsUpdate', items);
         }
     });
 
