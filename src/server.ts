@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer } from 'https';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import path from 'path';
 import fs from 'fs';
 import { database } from './database';
@@ -319,272 +319,305 @@ function respawnPlayer(player: Player) {
     }, RESPAWN_INVULNERABILITY_TIME);
 }
 
-io.on('connection', (socket) => {
-  console.log('A user connected');
+interface AuthenticatedSocket extends Socket {
+    userId?: string;
+    username?: string;
+}
 
-  // Load saved progress for the player
-  const savedProgress = database.getPlayer(socket.id);
+io.on('connection', (socket: AuthenticatedSocket) => {
+    console.log('A user connected');
 
-  // Initialize new player with saved or default values
-  players[socket.id] = {
-    id: socket.id,
-    x: 200,
-    y: WORLD_HEIGHT / 2,
-    angle: 0,
-    score: 0,
-    velocityX: 0,
-    velocityY: 0,
-    health: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
-    maxHealth: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
-    damage: savedProgress?.damage || PLAYER_DAMAGE,
-    inventory: [],
-    isInvulnerable: true,
-    level: savedProgress?.level || 1,
-    xp: savedProgress?.xp || 0,
-    xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1)
-  };
-
-  // Remove initial invulnerability after the specified time
-  setTimeout(() => {
-    if (players[socket.id]) {
-      players[socket.id].isInvulnerable = false;
-    }
-  }, RESPAWN_INVULNERABILITY_TIME);
-
-  // Send current players to the new player
-  socket.emit('currentPlayers', players);
-
-  // Notify all other players about the new player
-  socket.broadcast.emit('newPlayer', players[socket.id]);
-
-  // Send initial enemies state
-  socket.emit('enemiesUpdate', enemies);
-
-  // Send initial obstacles state
-  socket.emit('obstaclesUpdate', obstacles);
-
-  // Send current items to the new player
-  socket.emit('itemsUpdate', items);
-
-  socket.on('playerMovement', (movementData) => {
-    const player = players[socket.id];
-    if (player) {
-        let newX = movementData.x;  // Don't clamp position yet
-        let newY = movementData.y;
-
-        // Apply knockback to player position if it exists
-        if (player.knockbackX) {
-            player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-            newX += player.knockbackX;
-            if (Math.abs(player.knockbackX) < 0.1) player.knockbackX = 0;
-        }
-        if (player.knockbackY) {
-            player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-            newY += player.knockbackY;
-            if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
-        }
-
-        let collision = false;
-
-        // Check collision with enemies first
-        for (const enemy of enemies) {
-            const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+    // Handle authentication
+    socket.on('authenticate', async (credentials: { username: string, password: string }) => {
+        const user = database.getUser(credentials.username, credentials.password);
+        
+        if (user) {
+            // Store user info in socket
+            socket.userId = user.id;
+            socket.username = user.username;
             
-            if (
-                newX < enemy.x + enemySize &&
-                newX + PLAYER_SIZE > enemy.x &&
-                newY < enemy.y + enemySize &&
-                newY + PLAYER_SIZE > enemy.y
-            ) {
-                collision = true;
-                if (!player.isInvulnerable) {
-                    // Enemy damages player
-                    player.health -= enemy.damage;
-                    io.emit('playerDamaged', { playerId: player.id, health: player.health });
+            // Load saved progress for the player
+            const savedProgress = database.getPlayerByUserId(user.id);
 
-                    // Player damages enemy
-                    enemy.health -= player.damage;
-                    io.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+            // Initialize new player with saved or default values
+            players[socket.id] = {
+                id: socket.id,
+                x: 200,
+                y: WORLD_HEIGHT / 2,
+                angle: 0,
+                score: 0,
+                velocityX: 0,
+                velocityY: 0,
+                health: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
+                maxHealth: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
+                damage: savedProgress?.damage || PLAYER_DAMAGE,
+                inventory: [],
+                isInvulnerable: true,
+                level: savedProgress?.level || 1,
+                xp: savedProgress?.xp || 0,
+                xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1)
+            };
 
-                    // Calculate knockback direction
-                    const dx = enemy.x - newX;
-                    const dy = enemy.y - newY;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    const normalizedDx = dx / distance;
-                    const normalizedDy = dy / distance;
+            // Remove initial invulnerability after the specified time
+            setTimeout(() => {
+                if (players[socket.id]) {
+                    players[socket.id].isInvulnerable = false;
+                }
+            }, RESPAWN_INVULNERABILITY_TIME);
 
-                    // Apply knockback to player's position immediately
-                    newX -= normalizedDx * KNOCKBACK_FORCE;
-                    newY -= normalizedDy * KNOCKBACK_FORCE;
-                    
-                    // Store knockback for gradual recovery
-                    player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
-                    player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+            // Send success response and game state
+            socket.emit('authenticated', {
+                success: true,
+                player: players[socket.id]
+            });
 
-                    // Check if enemy dies
-                    if (enemy.health <= 0) {
-                        const index = enemies.findIndex(e => e.id === enemy.id);
-                        if (index !== -1) {
-                            // Award XP before removing the enemy
-                            const xpGained = getXPFromEnemy(enemy);
-                            addXPToPlayer(player, xpGained);
-                            
-                            // Check for item drop
-                            const dropChance = DROP_CHANCES[enemy.tier];
-                            if (Math.random() < dropChance && player.inventory.length < MAX_INVENTORY_SIZE) {
-                                const newItem = {
-                                    id: Math.random().toString(36).substr(2, 9),
-                                    type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
-                                    x: enemy.x,
-                                    y: enemy.y
-                                };
-                                player.inventory.push(newItem);
-                                socket.emit('inventoryUpdate', player.inventory);
-                                socket.emit('itemCollected', { 
-                                    playerId: player.id, 
-                                    itemId: newItem.id,
-                                    itemType: newItem.type 
-                                });
+            // Send current game state
+            socket.emit('currentPlayers', players);
+            socket.emit('enemiesUpdate', enemies);
+            socket.emit('obstaclesUpdate', obstacles);
+            socket.emit('itemsUpdate', items);
+
+            // Notify other players
+            socket.broadcast.emit('newPlayer', players[socket.id]);
+        } else {
+            socket.emit('authenticated', {
+                success: false,
+                error: 'Invalid credentials'
+            });
+        }
+    });
+
+    // Update disconnect handler
+    socket.on('disconnect', () => {
+        console.log('A user disconnected');
+        if (players[socket.id] && socket.userId) {
+            // Save progress with user ID
+            savePlayerProgress(players[socket.id], socket.userId);
+        }
+        delete players[socket.id];
+        io.emit('playerDisconnected', socket.id);
+    });
+
+    // Update the savePlayerProgress function
+    function savePlayerProgress(player: Player, userId?: string) {
+        if (userId) {
+            database.savePlayer(player.id, userId, {
+                level: player.level,
+                xp: player.xp,
+                maxHealth: player.maxHealth,
+                damage: player.damage
+            });
+        } else {
+            // Handle case where userId is not provided (legacy support)
+            console.warn('Attempting to save player progress without userId');
+        }
+    }
+
+    socket.on('playerMovement', (movementData) => {
+        const player = players[socket.id];
+        if (player) {
+            let newX = movementData.x;  // Don't clamp position yet
+            let newY = movementData.y;
+
+            // Apply knockback to player position if it exists
+            if (player.knockbackX) {
+                player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+                newX += player.knockbackX;
+                if (Math.abs(player.knockbackX) < 0.1) player.knockbackX = 0;
+            }
+            if (player.knockbackY) {
+                player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+                newY += player.knockbackY;
+                if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
+            }
+
+            let collision = false;
+
+            // Check collision with enemies first
+            for (const enemy of enemies) {
+                const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+                
+                if (
+                    newX < enemy.x + enemySize &&
+                    newX + PLAYER_SIZE > enemy.x &&
+                    newY < enemy.y + enemySize &&
+                    newY + PLAYER_SIZE > enemy.y
+                ) {
+                    collision = true;
+                    if (!player.isInvulnerable) {
+                        // Enemy damages player
+                        player.health -= enemy.damage;
+                        io.emit('playerDamaged', { playerId: player.id, health: player.health });
+
+                        // Player damages enemy
+                        enemy.health -= player.damage;
+                        io.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+
+                        // Calculate knockback direction
+                        const dx = enemy.x - newX;
+                        const dy = enemy.y - newY;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        const normalizedDx = dx / distance;
+                        const normalizedDy = dy / distance;
+
+                        // Apply knockback to player's position immediately
+                        newX -= normalizedDx * KNOCKBACK_FORCE;
+                        newY -= normalizedDy * KNOCKBACK_FORCE;
+                        
+                        // Store knockback for gradual recovery
+                        player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
+                        player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+
+                        // Check if enemy dies
+                        if (enemy.health <= 0) {
+                            const index = enemies.findIndex(e => e.id === enemy.id);
+                            if (index !== -1) {
+                                // Award XP before removing the enemy
+                                const xpGained = getXPFromEnemy(enemy);
+                                addXPToPlayer(player, xpGained);
+                                
+                                // Check for item drop
+                                const dropChance = DROP_CHANCES[enemy.tier];
+                                if (Math.random() < dropChance && player.inventory.length < MAX_INVENTORY_SIZE) {
+                                    const newItem = {
+                                        id: Math.random().toString(36).substr(2, 9),
+                                        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
+                                        x: enemy.x,
+                                        y: enemy.y
+                                    };
+                                    player.inventory.push(newItem);
+                                    socket.emit('inventoryUpdate', player.inventory);
+                                    socket.emit('itemCollected', { 
+                                        playerId: player.id, 
+                                        itemId: newItem.id,
+                                        itemType: newItem.type 
+                                    });
+                                }
+
+                                enemies.splice(index, 1);
+                                io.emit('enemyDestroyed', enemy.id);
+                                enemies.push(createEnemy());
                             }
+                        }
 
-                            enemies.splice(index, 1);
-                            io.emit('enemyDestroyed', enemy.id);
-                            enemies.push(createEnemy());
+                        // Check if player dies
+                        if (player.health <= 0) {
+                            respawnPlayer(player);
+                            io.emit('playerDied', player.id);
+                            io.emit('playerRespawned', player);
+                            return;
                         }
                     }
-
-                    // Check if player dies
-                    if (player.health <= 0) {
-                        respawnPlayer(player);
-                        io.emit('playerDied', player.id);
-                        io.emit('playerRespawned', player);
-                        return;
-                    }
+                    break;
                 }
-                break;
             }
+
+            // Update player position even if there was a collision (to apply knockback)
+            player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+            player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+            player.angle = movementData.angle;
+            player.velocityX = movementData.velocityX;
+            player.velocityY = movementData.velocityY;
+
+            // Always emit the updated position
+            io.emit('playerMoved', player);
+        }
+    });
+
+    socket.on('collectDot', (dotIndex: number) => {
+        if (dotIndex >= 0 && dotIndex < dots.length) {
+            dots.splice(dotIndex, 1);
+            players[socket.id].score++;
+            io.emit('dotCollected', { playerId: socket.id, dotIndex });
+            // Generate a new dot
+            dots.push({
+                x: Math.random() * 800,
+                y: Math.random() * 600
+            });
+        }
+    });
+
+    socket.on('collectItem', (itemId: string) => {
+        const player = players[socket.id];
+        const itemIndex = items.findIndex(item => item.id === itemId);
+        if (itemIndex !== -1 && player.inventory.length < MAX_INVENTORY_SIZE) {
+            const item = items[itemIndex];
+            player.inventory.push(item);
+            items.splice(itemIndex, 1);
+            socket.emit('inventoryUpdate', player.inventory);
+            io.emit('itemCollected', { playerId: socket.id, itemId });
+            items.push(createItem()); // Replace the collected item
+            io.emit('itemsUpdate', items);
+        }
+    });
+
+    socket.on('useItem', (itemId: string) => {
+        const player = players[socket.id];
+        const itemIndex = player.inventory.findIndex(item => item.id === itemId);
+        if (itemIndex !== -1) {
+            const item = player.inventory[itemIndex];
+            player.inventory.splice(itemIndex, 1);
+            switch (item.type) {
+                case 'health_potion':
+                    player.health = Math.min(player.health + 50, PLAYER_MAX_HEALTH);
+                    break;
+                case 'speed_boost':
+                    // Implement speed boost logic
+                    break;
+                case 'shield':
+                    // Implement shield logic
+                    break;
+            }
+            socket.emit('inventoryUpdate', player.inventory);
+            io.emit('playerUpdated', player);
+        }
+    });
+
+    // Add save handler for when players gain XP or level up
+
+
+    // Update the addXPToPlayer function to save progress
+    function addXPToPlayer(player: Player, xp: number): void {
+        if (player.level >= MAX_LEVEL) return;
+
+        player.xp += xp;
+        while (player.xp >= player.xpToNextLevel && player.level < MAX_LEVEL) {
+            player.xp -= player.xpToNextLevel;
+            player.level++;
+            player.xpToNextLevel = calculateXPRequirement(player.level);
+            handleLevelUp(player);
         }
 
-        // Update player position even if there was a collision (to apply knockback)
-        player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
-        player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
-        player.angle = movementData.angle;
-        player.velocityX = movementData.velocityX;
-        player.velocityY = movementData.velocityY;
+        if (player.level >= MAX_LEVEL) {
+            player.xp = 0;
+            player.xpToNextLevel = 0;
+        }
 
-        // Always emit the updated position
-        io.emit('playerMoved', player);
+        // Save progress after XP gain using the socket's userId
+        if (socket.userId) {
+            savePlayerProgress(player, socket.userId);
+        }
+
+        io.emit('xpGained', {
+            playerId: player.id,
+            xp: xp,
+            totalXp: player.xp,
+            level: player.level,
+            xpToNextLevel: player.xpToNextLevel,
+            maxHealth: player.maxHealth,
+            damage: player.damage
+        });
     }
-  });
-
-  socket.on('collectDot', (dotIndex: number) => {
-    if (dotIndex >= 0 && dotIndex < dots.length) {
-      dots.splice(dotIndex, 1);
-      players[socket.id].score++;
-      io.emit('dotCollected', { playerId: socket.id, dotIndex });
-      // Generate a new dot
-      dots.push({
-        x: Math.random() * 800,
-        y: Math.random() * 600
-      });
-    }
-  });
-
-  socket.on('collectItem', (itemId: string) => {
-    const player = players[socket.id];
-    const itemIndex = items.findIndex(item => item.id === itemId);
-    if (itemIndex !== -1 && player.inventory.length < MAX_INVENTORY_SIZE) {
-      const item = items[itemIndex];
-      player.inventory.push(item);
-      items.splice(itemIndex, 1);
-      socket.emit('inventoryUpdate', player.inventory);
-      io.emit('itemCollected', { playerId: socket.id, itemId });
-      items.push(createItem()); // Replace the collected item
-      io.emit('itemsUpdate', items);
-    }
-  });
-
-  socket.on('useItem', (itemId: string) => {
-    const player = players[socket.id];
-    const itemIndex = player.inventory.findIndex(item => item.id === itemId);
-    if (itemIndex !== -1) {
-      const item = player.inventory[itemIndex];
-      player.inventory.splice(itemIndex, 1);
-      switch (item.type) {
-        case 'health_potion':
-          player.health = Math.min(player.health + 50, PLAYER_MAX_HEALTH);
-          break;
-        case 'speed_boost':
-          // Implement speed boost logic
-          break;
-        case 'shield':
-          // Implement shield logic
-          break;
-      }
-      socket.emit('inventoryUpdate', player.inventory);
-      io.emit('playerUpdated', player);
-    }
-  });
-
-  socket.on('disconnect', () => {
-    console.log('A user disconnected');
-    if (players[socket.id]) {
-      savePlayerProgress(players[socket.id]);
-    }
-    delete players[socket.id];
-    io.emit('playerDisconnected', socket.id);
-  });
-
-  // Add save handler for when players gain XP or level up
-  function savePlayerProgress(player: Player) {
-    database.savePlayer(player.id, {
-      level: player.level,
-      xp: player.xp,
-      maxHealth: player.maxHealth,
-      damage: player.damage
-    });
-  }
-
-  // Update the addXPToPlayer function to save progress
-  function addXPToPlayer(player: Player, xp: number): void {
-    if (player.level >= MAX_LEVEL) return;
-
-    player.xp += xp;
-    while (player.xp >= player.xpToNextLevel && player.level < MAX_LEVEL) {
-      player.xp -= player.xpToNextLevel;
-      player.level++;
-      player.xpToNextLevel = calculateXPRequirement(player.level);
-      handleLevelUp(player);
-    }
-
-    if (player.level >= MAX_LEVEL) {
-      player.xp = 0;
-      player.xpToNextLevel = 0;
-    }
-
-    // Save progress after XP gain
-    savePlayerProgress(player);
-
-    io.emit('xpGained', {
-      playerId: player.id,
-      xp: xp,
-      totalXp: player.xp,
-      level: player.level,
-      xpToNextLevel: player.xpToNextLevel,
-      maxHealth: player.maxHealth,
-      damage: player.damage
-    });
-  }
 });
 
 // Move enemies every 100ms
 setInterval(() => {
-  moveEnemies();
-  io.emit('enemiesUpdate', enemies);
+    moveEnemies();
+    io.emit('enemiesUpdate', enemies);
 }, 100);
 
 httpsServer.listen(PORT, () => {
-  console.log(`Server is running on https://localhost:${PORT}`);
+    console.log(`Server is running on https://localhost:${PORT}`);
 });
 
 // Add XP calculation functions

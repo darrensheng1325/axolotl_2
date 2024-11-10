@@ -153,6 +153,9 @@ export class Game {
           this.initMultiPlayerMode();
       }
 
+      // Move authentication to after socket initialization
+      this.authenticate();
+
       // Add respawn button listener
       const respawnButton = document.getElementById('respawnButton');
       respawnButton?.addEventListener('click', () => {
@@ -167,6 +170,36 @@ export class Game {
               const rect = this.canvas.getBoundingClientRect();
               this.mouseX = event.clientX - rect.left + this.cameraX;
               this.mouseY = event.clientY - rect.top + this.cameraY;
+          }
+      });
+  }
+
+  private authenticate() {
+      // Get credentials from AuthUI or localStorage
+      const credentials = {
+          username: localStorage.getItem('username') || 'player1',
+          password: localStorage.getItem('password') || 'password123'
+      };
+
+      this.socket.emit('authenticate', credentials);
+
+      this.socket.on('authenticated', (response: { success: boolean; error?: string; player?: any }) => {
+          if (response.success) {
+              console.log('Authentication successful');
+              if (response.player) {
+                if (this.socket.id) {
+                    // Update player data with saved progress
+                    const player = this.players.get(this.socket.id);
+                    if (player) {
+                          Object.assign(player, response.player);
+                    }
+                }
+              }
+          } else {
+              console.error('Authentication failed:', response.error);
+              alert('Authentication failed: ' + response.error);
+              localStorage.removeItem('currentUser');
+              window.location.reload();
           }
       });
   }
