@@ -7,6 +7,9 @@ import { database } from './database';
 
 const app = express();
 
+// Add body parser middleware for JSON
+app.use(express.json());
+
 // Add CORS middleware with specific origin
 app.use((req, res, next) => {
     const origin = req.headers.origin || 'https://localhost:8080';
@@ -20,6 +23,58 @@ app.use((req, res, next) => {
     } else {
         next();
     }
+});
+
+// Authentication endpoints
+app.post('/auth/register', (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Username and password are required' });
+    }
+
+    const user = database.createUser(username, password);
+    if (user) {
+        res.status(201).json({ message: 'User created successfully' });
+    } else {
+        res.status(400).json({ message: 'Username already exists' });
+    }
+});
+
+app.post('/auth/login', (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Username and password are required' });
+    }
+
+    const user = database.getUser(username, password);
+    if (user) {
+        // You might want to set up a session here
+        res.json({ message: 'Login successful', userId: user.id });
+    } else {
+        res.status(401).json({ message: 'Invalid credentials' });
+    }
+});
+
+app.post('/auth/verify', (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Username and password are required' });
+    }
+
+    const user = database.getUser(username, password);
+    if (user) {
+        res.json({ valid: true });
+    } else {
+        res.status(401).json({ valid: false });
+    }
+});
+
+app.post('/auth/logout', (req, res) => {
+    // Handle any cleanup needed
+    res.json({ message: 'Logged out successfully' });
 });
 
 // Serve static files from the dist directory
