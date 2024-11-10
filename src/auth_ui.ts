@@ -1,6 +1,7 @@
 interface StoredCredentials {
     username: string;
     password: string;
+    isOffline?: boolean;  // Add flag to identify offline accounts
 }
 
 export class AuthUI {
@@ -22,6 +23,7 @@ export class AuthUI {
     private registerPassword: HTMLInputElement;
     private registerConfirmPassword: HTMLInputElement;
     private serverIPInput: HTMLInputElement;
+    private registerOfflineButton: HTMLElement;
 
     constructor() {
         // Get DOM elements
@@ -36,6 +38,7 @@ export class AuthUI {
         
         // Register elements
         this.registerButton = document.getElementById('registerButton')!;
+        this.registerOfflineButton = document.getElementById('registerOfflineButton')!;
         this.registerUsername = document.getElementById('registerUsername') as HTMLInputElement;
         this.registerPassword = document.getElementById('registerPassword') as HTMLInputElement;
         this.registerConfirmPassword = document.getElementById('registerConfirmPassword') as HTMLInputElement;
@@ -52,6 +55,7 @@ export class AuthUI {
         // Bind event listeners
         this.loginButton.addEventListener('click', () => this.handleLogin());
         this.registerButton.addEventListener('click', () => this.handleRegister());
+        this.registerOfflineButton.addEventListener('click', () => this.handleOfflineRegister());
         this.showRegisterLink.addEventListener('click', () => this.toggleForms());
         this.showLoginLink.addEventListener('click', () => this.toggleForms());
 
@@ -107,16 +111,16 @@ export class AuthUI {
                 localStorage.setItem('password', password);
                 localStorage.setItem('currentUser', username);
                 localStorage.setItem('serverUrl', serverUrl);
+                sessionStorage.removeItem('isOffline'); // Clear any offline status
                 this.hideAuthForm();
             } else {
-                // Fallback to local authentication
-                const storedCredentials = this.getStoredCredentials();
-                const userExists = storedCredentials.find(cred => 
-                    cred.username === username && cred.password === password
-                );
-
-                if (userExists) {
-                    localStorage.setItem('currentUser', username);
+                // Check offline credentials in sessionStorage
+                const offlineCredentials = JSON.parse(sessionStorage.getItem('offlineCredentials') || '{}');
+                if (offlineCredentials.username === username && 
+                    offlineCredentials.password === password && 
+                    offlineCredentials.isOffline) {
+                    sessionStorage.setItem('currentUser', username);
+                    sessionStorage.setItem('isOffline', 'true');
                     this.hideAuthForm();
                 } else {
                     alert('Invalid username or password');
@@ -124,14 +128,13 @@ export class AuthUI {
             }
         } catch (error) {
             console.error('Login error:', error);
-            // Fallback to local authentication on server error
-            const storedCredentials = this.getStoredCredentials();
-            const userExists = storedCredentials.find(cred => 
-                cred.username === username && cred.password === password
-            );
-
-            if (userExists) {
-                localStorage.setItem('currentUser', username);
+            // Check offline credentials on server error
+            const offlineCredentials = JSON.parse(sessionStorage.getItem('offlineCredentials') || '{}');
+            if (offlineCredentials.username === username && 
+                offlineCredentials.password === password && 
+                offlineCredentials.isOffline) {
+                sessionStorage.setItem('currentUser', username);
+                sessionStorage.setItem('isOffline', 'true');
                 this.hideAuthForm();
             } else {
                 alert('Invalid username or password');
@@ -186,30 +189,74 @@ export class AuthUI {
         }
     }
 
+    private async handleOfflineRegister() {
+        const username = this.registerUsername.value;
+        const password = this.registerPassword.value;
+        const confirmPassword = this.registerConfirmPassword.value;
+
+        if (!username || !password) {
+            alert('Username and password are required');
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            alert('Passwords do not match');
+            return;
+        }
+
+        // Check if username exists in temporary storage
+        const storedCredentials = this.getStoredCredentials();
+        if (storedCredentials.some(cred => cred.username === username)) {
+            alert('Username already exists locally');
+            return;
+        }
+
+        // Store credentials in sessionStorage (temporary)
+        const offlineCredentials = {
+            username,
+            password,
+            isOffline: true
+        };
+        
+        // Store in sessionStorage (temporary) instead of localStorage
+        sessionStorage.setItem('offlineCredentials', JSON.stringify(offlineCredentials));
+        sessionStorage.setItem('currentUser', username);
+        sessionStorage.setItem('isOffline', 'true');
+
+        // Switch to login form
+        this.toggleForms();
+        alert('Offline registration successful! Note: This account is temporary and will be lost when you close the browser.');
+    }
+
     private getStoredCredentials(): StoredCredentials[] {
         const stored = localStorage.getItem('credentials');
         return stored ? JSON.parse(stored) : [];
     }
 
     private checkStoredCredentials() {
+        // Check if user is logged in offline
+        const isOffline = sessionStorage.getItem('isOffline');
+        if (isOffline) {
+            const currentUser = sessionStorage.getItem('currentUser');
+            const offlineCredentials = JSON.parse(sessionStorage.getItem('offlineCredentials') || '{}');
+            
+            if (currentUser && offlineCredentials.username === currentUser) {
+                this.hideAuthForm();
+                return;
+            }
+        }
+
+        // Check online credentials
         const currentUser = localStorage.getItem('currentUser');
         const username = localStorage.getItem('username');
         const password = localStorage.getItem('password');
 
         if (currentUser && username && password) {
-            // Verify with server if possible
             this.verifyStoredCredentials(username, password).then(valid => {
                 if (valid) {
                     this.hideAuthForm();
                 } else {
-                    // Fallback to local verification
-                    const storedCredentials = this.getStoredCredentials();
-                    const userExists = storedCredentials.find(cred => 
-                        cred.username === username && cred.password === password
-                    );
-                    if (!userExists) {
-                        this.logout();
-                    }
+                    this.logout();
                 }
             });
         }
@@ -241,17 +288,24 @@ export class AuthUI {
     }
 
     public logout() {
+        // Clear both localStorage and sessionStorage
         localStorage.removeItem('currentUser');
         localStorage.removeItem('username');
         localStorage.removeItem('password');
         
-        // Attempt server logout
-        fetch(`${this.serverUrl}/auth/logout`, {
-            method: 'POST',
-            credentials: 'include'
-        }).catch(error => {
-            console.error('Logout error:', error);
-        });
+        sessionStorage.removeItem('currentUser');
+        sessionStorage.removeItem('offlineCredentials');
+        sessionStorage.removeItem('isOffline');
+        
+        // Attempt server logout only if not offline
+        if (!sessionStorage.getItem('isOffline')) {
+            fetch(`${this.serverUrl}/auth/logout`, {
+                method: 'POST',
+                credentials: 'include'
+            }).catch(error => {
+                console.error('Logout error:', error);
+            });
+        }
 
         this.showAuthForm();
     }
