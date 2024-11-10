@@ -112,3 +112,8 @@ body {
     font-size: 0.9rem;
     margin-bottom: 1rem;
 }
+
+.name-input {
+    margin-bottom: 1rem;
+    width: 200vw;
+}

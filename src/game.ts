@@ -105,6 +105,10 @@ export class Game {
   private mouseX: number = 0;
   private mouseY: number = 0;
   private showHitboxes: boolean = true;  // Set to true to show hitboxes
+  private titleScreen: HTMLElement | null;
+  private nameInput: HTMLElement | null;
+  private exitButton: HTMLElement | null;
+  private exitButtonContainer: HTMLElement | null;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -146,9 +150,14 @@ export class Game {
       this.setupEventListeners();
       this.setupItemSprites();
 
+      // Get title screen elements
+      this.titleScreen = document.querySelector('.center_text');
+      this.nameInput = document.getElementById('nameInput');
+
       // Initialize game mode after resource loading
       if (this.isSinglePlayer) {
           this.initSinglePlayerMode();
+          this.hideTitleScreen();
       } else {
           this.initMultiPlayerMode();
       }
@@ -172,6 +181,13 @@ export class Game {
               this.mouseY = event.clientY - rect.top + this.cameraY;
           }
       });
+
+      // Initialize exit button
+      this.exitButton = document.getElementById('exitButton');
+      this.exitButtonContainer = document.getElementById('exitButtonContainer');
+      
+      // Add exit button click handler
+      this.exitButton?.addEventListener('click', () => this.handleExit());
   }
 
   private authenticate() {
@@ -270,6 +286,8 @@ export class Game {
       } catch (error) {
           console.error('Error initializing worker:', error);
       }
+
+      this.showExitButton();
   }
 
   private initMultiPlayerMode() {
@@ -278,6 +296,12 @@ export class Game {
           rejectUnauthorized: false,
           withCredentials: true
       });
+
+      this.socket.on('connect', () => {
+          this.hideTitleScreen();
+          this.showExitButton();
+      });
+
       this.setupSocketListeners();
   }
 
@@ -1140,7 +1164,7 @@ export class Game {
 
   public cleanup() {
       // Save progress before cleanup if in single player mode
-      if (this.isSinglePlayer && this.socket?.id) {  // Add null check for socket.id
+      if (this.isSinglePlayer && this.socket?.id) {
           const player = this.players.get(this.socket.id);
           if (player) {
               this.savePlayerProgress(player);
@@ -1173,16 +1197,30 @@ export class Game {
       // Clear the canvas
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-      // Hide game canvas and show title screen
-      const titleScreen = document.getElementById('titleScreen');
-      const canvas = document.getElementById('gameCanvas');
-      const exitButton = document.getElementById('exitButton');
-      
-      if (titleScreen && canvas && exitButton) {
-          titleScreen.style.display = 'flex';
-          canvas.style.display = 'none';
-          exitButton.style.display = 'none';
+      // Reset and show title screen elements
+      if (this.titleScreen) {
+          this.titleScreen.style.display = 'flex';
+          this.titleScreen.style.opacity = '1';
+          this.titleScreen.style.zIndex = '1000';
       }
+      if (this.nameInput) {
+          this.nameInput.style.display = 'block';
+          this.nameInput.style.opacity = '1';
+      }
+
+      // Hide exit button
+      this.hideExitButton();
+
+      // Show and reset game menu
+      const gameMenu = document.getElementById('gameMenu');
+      if (gameMenu) {
+          gameMenu.style.display = 'flex';
+          gameMenu.style.opacity = '1';
+          gameMenu.style.zIndex = '3000';
+      }
+
+      // Reset canvas state
+      this.canvas.style.zIndex = '0';
   }
 
   private loadPlayerProgress(): { level: number; xp: number; maxHealth: number; damage: number } {
@@ -1284,4 +1322,69 @@ export class Game {
           }
       }
   }
-              }
+
+  private hideTitleScreen() {
+      if (this.titleScreen) {
+          this.titleScreen.style.display = 'none';
+          this.titleScreen.style.opacity = '0';
+      }
+      if (this.nameInput) {
+          this.nameInput.style.display = 'none';
+          this.nameInput.style.opacity = '0';
+      }
+      // Hide game menu when game starts
+      const gameMenu = document.getElementById('gameMenu');
+      if (gameMenu) {
+          gameMenu.style.display = 'none';
+          gameMenu.style.opacity = '0';
+      }
+
+      // Ensure canvas is visible
+      this.canvas.style.zIndex = '1';
+  }
+
+  private showExitButton() {
+      if (this.exitButtonContainer) {
+          this.exitButtonContainer.style.display = 'block';
+      }
+  }
+
+  private hideExitButton() {
+      if (this.exitButtonContainer) {
+          this.exitButtonContainer.style.display = 'none';
+      }
+  }
+
+  private handleExit() {
+      // Clean up game state
+      this.cleanup();
+      
+      // Show title screen elements
+      if (this.titleScreen) {
+          this.titleScreen.style.display = 'flex';
+          this.titleScreen.style.opacity = '1';
+          this.titleScreen.style.zIndex = '1000';
+      }
+      if (this.nameInput) {
+          this.nameInput.style.display = 'block';
+          this.nameInput.style.opacity = '1';
+      }
+
+      // Hide exit button
+      this.hideExitButton();
+
+      // Show game menu with proper styling
+      const gameMenu = document.getElementById('gameMenu');
+      if (gameMenu) {
+          gameMenu.style.display = 'flex';
+          gameMenu.style.opacity = '1';
+          gameMenu.style.zIndex = '3000';
+      }
+
+      // Clear the canvas
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+      // Reset canvas visibility
+      this.canvas.style.zIndex = '0';
+  }
+}
