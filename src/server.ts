@@ -103,6 +103,7 @@ const PORT = process.env.PORT || 3000;
 
 interface Player {
   id: string;
+  name: string;
   x: number;
   y: number;
   angle: number;
@@ -114,12 +115,12 @@ interface Player {
   damage: number;
   inventory: Item[];
   isInvulnerable?: boolean;
-  knockbackX?: number; // New property
-  knockbackY?: number; // New property
+  knockbackX?: number;
+  knockbackY?: number;
   level: number;
   xp: number;
   xpToNextLevel: number;
-  lastDamageTime?: number;  // Add this property
+  lastDamageTime?: number;
 }
 
 interface Dot {
@@ -137,8 +138,8 @@ interface Enemy {
   health: number;
   speed: number;
   damage: number;
-  knockbackX?: number; // New property
-  knockbackY?: number; // New property
+  knockbackX?: number;
+  knockbackY?: number;
 }
 
 interface Obstacle {
@@ -385,7 +386,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
     console.log('A user connected');
 
     // Handle authentication
-    socket.on('authenticate', async (credentials: { username: string, password: string }) => {
+    socket.on('authenticate', async (credentials: { username: string, password: string, playerName: string }) => {
         const user = database.getUser(credentials.username, credentials.password);
         
         if (user) {
@@ -399,6 +400,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
             // Initialize new player with saved or default values
             players[socket.id] = {
                 id: socket.id,
+                name: credentials.playerName || 'Anonymous',
                 x: 200,
                 y: WORLD_HEIGHT / 2,
                 angle: 0,
@@ -666,6 +668,15 @@ io.on('connection', (socket: AuthenticatedSocket) => {
             damage: player.damage
         });
     }
+
+    // Add a name update handler
+    socket.on('updateName', (newName: string) => {
+        const player = players[socket.id];
+        if (player) {
+            player.name = newName;
+            io.emit('playerUpdated', player);
+        }
+    });
 });
 
 // Move enemies every 100ms

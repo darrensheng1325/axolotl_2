@@ -311,6 +311,7 @@ io.on('connection', (socket) => {
             // Initialize new player with saved or default values
             players[socket.id] = {
                 id: socket.id,
+                name: credentials.playerName || 'Anonymous',
                 x: 200,
                 y: WORLD_HEIGHT / 2,
                 angle: 0,
@@ -550,6 +551,14 @@ io.on('connection', (socket) => {
             damage: player.damage
         });
     }
+    // Add a name update handler
+    socket.on('updateName', (newName) => {
+        const player = players[socket.id];
+        if (player) {
+            player.name = newName;
+            io.emit('playerUpdated', player);
+        }
+    });
 });
 // Move enemies every 100ms
 setInterval(() => {

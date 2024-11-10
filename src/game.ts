@@ -106,7 +106,7 @@ export class Game {
   private mouseY: number = 0;
   private showHitboxes: boolean = true;  // Set to true to show hitboxes
   private titleScreen: HTMLElement | null;
-  private nameInput: HTMLElement | null;
+  private nameInput: HTMLInputElement | null;
   private exitButton: HTMLElement | null;
   private exitButtonContainer: HTMLElement | null;
 
@@ -152,7 +152,7 @@ export class Game {
 
       // Get title screen elements
       this.titleScreen = document.querySelector('.center_text');
-      this.nameInput = document.getElementById('nameInput');
+      this.nameInput = document.getElementById('nameInput') as HTMLInputElement;
 
       // Initialize game mode after resource loading
       if (this.isSinglePlayer) {
@@ -194,7 +194,8 @@ export class Game {
       // Get credentials from AuthUI or localStorage
       const credentials = {
           username: localStorage.getItem('username') || 'player1',
-          password: localStorage.getItem('password') || 'password123'
+          password: localStorage.getItem('password') || 'password123',
+          playerName: this.nameInput?.value || 'Anonymous'
       };
 
       this.socket.emit('authenticate', credentials);
@@ -580,6 +581,13 @@ export class Game {
               );
           }
       });
+
+      // Add name input change listener
+      this.nameInput?.addEventListener('change', () => {
+          if (this.socket && this.nameInput) {
+              this.socket.emit('updateName', this.nameInput.value);
+          }
+      });
   }
 
   private updatePlayerVelocity() {
@@ -880,7 +888,7 @@ export class Game {
 
       if (!this.isInventoryOpen) {
           // Get current player for camera
-          const currentSocketId = this.socket?.id;  // Changed variable name
+          const currentSocketId = this.socket?.id;
           if (currentSocketId) {
               const currentPlayer = this.players.get(currentSocketId);
               if (currentPlayer) {
@@ -969,7 +977,7 @@ export class Game {
               this.ctx.restore();
           });
 
-          // Draw players BEFORE decorations
+          // Draw players
           this.players.forEach((player, id) => {
               this.ctx.save();
               this.ctx.translate(player.x, player.y);
@@ -980,9 +988,18 @@ export class Game {
               
               this.ctx.restore();
 
-              // Draw UI elements above player
-              this.ctx.fillStyle = 'black';
+              // Draw player name above health bar
+              this.ctx.fillStyle = 'white';
+              this.ctx.strokeStyle = 'black';
+              this.ctx.lineWidth = 2;
               this.ctx.font = '16px Arial';
+              this.ctx.textAlign = 'center';
+              const nameText = player.name || 'Anonymous';
+              
+              // Draw text stroke
+              this.ctx.strokeText(nameText, player.x, player.y - 50);
+              // Draw text fill
+              this.ctx.fillText(nameText, player.x, player.y - 50);
 
               // Draw health bar
               this.ctx.fillStyle = 'black';
@@ -1005,7 +1022,7 @@ export class Game {
               // Draw level
               this.ctx.fillStyle = '#FFD700';
               this.ctx.font = '12px Arial';
-              this.ctx.fillText('Lv.' + player.level, player.x - 25, player.y - 50);
+              this.ctx.fillText('Lv.' + player.level, player.x - 25, player.y - 55);
           });
 
           // Draw enemies
