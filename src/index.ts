@@ -1,6 +1,10 @@
 // ... (keep the existing imports and Player class)
 
 import { Game } from './game';
+import { AuthUI } from './auth_ui';
+
+// Initialize auth UI
+const authUI = new AuthUI();
 
 // Add interfaces before the workerCode string
 interface Decoration {

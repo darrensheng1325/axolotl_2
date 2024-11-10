@@ -1,4 +1,12 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Multiplayer Game</title><style>* {
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Game</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
@@ -41,4 +49,32 @@
         button:hover {
             background-color: rgba(255, 255, 255, 1);
             transform: scale(1.05);
-        }</style><script defer="defer" src="./bundle.js"></script></head><body><canvas id="gameCanvas"></canvas><div id="gameMenu"><button id="singlePlayerButton">Single Player</button> <button id="multiPlayerButton">Multiplayer</button></div></body></html>
+        }
+    </style>
+</head>
+<body>
+    <div id="authContainer" class="auth-container">
+        <div id="loginForm" class="auth-form">
+            <h2>Login</h2>
+            <input type="text" id="loginUsername" placeholder="Username">
+            <input type="password" id="loginPassword" placeholder="Password">
+            <button id="loginButton">Login</button>
+            <p class="form-switch" id="showRegister">Need an account? Register</p>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="gameMenu">
+        <button id="singlePlayerButton" class="buttons">Single Player</button>
+        <button id="multiPlayerButton" class="buttons">Multiplayer</button>
+    </div>
+    <script src="bundle.js"></script>
+    <div class="center_text">
+        <p class="title">
+            Axolotl Game
+        </p>
+        <p class="instructions">
+            Use arrow keys to move. Touch enemies to attack.
+        </p>
+    </div>
+</body>
+</html>
