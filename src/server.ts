@@ -3,6 +3,7 @@ import { createServer } from 'https';
 import { Server } from 'socket.io';
 import path from 'path';
 import fs from 'fs';
+import { database } from './database';
 
 const app = express();
 
@@ -321,23 +322,26 @@ function respawnPlayer(player: Player) {
 io.on('connection', (socket) => {
   console.log('A user connected');
 
-  // Initialize new player with level properties
+  // Load saved progress for the player
+  const savedProgress = database.getPlayer(socket.id);
+
+  // Initialize new player with saved or default values
   players[socket.id] = {
     id: socket.id,
-    x: 200,  // Start near the left edge
+    x: 200,
     y: WORLD_HEIGHT / 2,
     angle: 0,
     score: 0,
     velocityX: 0,
     velocityY: 0,
-    health: PLAYER_MAX_HEALTH,
-    maxHealth: PLAYER_MAX_HEALTH,
-    damage: PLAYER_DAMAGE,
+    health: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
+    maxHealth: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
+    damage: savedProgress?.damage || PLAYER_DAMAGE,
     inventory: [],
     isInvulnerable: true,
-    level: 1,
-    xp: 0,
-    xpToNextLevel: calculateXPRequirement(1)
+    level: savedProgress?.level || 1,
+    xp: savedProgress?.xp || 0,
+    xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1)
   };
 
   // Remove initial invulnerability after the specified time
@@ -502,9 +506,53 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('A user disconnected');
+    if (players[socket.id]) {
+      savePlayerProgress(players[socket.id]);
+    }
     delete players[socket.id];
     io.emit('playerDisconnected', socket.id);
   });
+
+  // Add save handler for when players gain XP or level up
+  function savePlayerProgress(player: Player) {
+    database.savePlayer(player.id, {
+      level: player.level,
+      xp: player.xp,
+      maxHealth: player.maxHealth,
+      damage: player.damage
+    });
+  }
+
+  // Update the addXPToPlayer function to save progress
+  function addXPToPlayer(player: Player, xp: number): void {
+    if (player.level >= MAX_LEVEL) return;
+
+    player.xp += xp;
+    while (player.xp >= player.xpToNextLevel && player.level < MAX_LEVEL) {
+      player.xp -= player.xpToNextLevel;
+      player.level++;
+      player.xpToNextLevel = calculateXPRequirement(player.level);
+      handleLevelUp(player);
+    }
+
+    if (player.level >= MAX_LEVEL) {
+      player.xp = 0;
+      player.xpToNextLevel = 0;
+    }
+
+    // Save progress after XP gain
+    savePlayerProgress(player);
+
+    io.emit('xpGained', {
+      playerId: player.id,
+      xp: xp,
+      totalXp: player.xp,
+      level: player.level,
+      xpToNextLevel: player.xpToNextLevel,
+      maxHealth: player.maxHealth,
+      damage: player.damage
+    });
+  }
 });
 
 // Move enemies every 100ms
@@ -532,4 +580,23 @@ function getXPFromEnemy(enemy: Enemy): number {
         mythic: 320
     };
     return tierMultipliers[enemy.tier];
+}
+
+// Optional: Clean up old player data periodically
+setInterval(() => {
+    database.cleanupOldPlayers(30); // Clean up players not seen in 30 days
+}, 24 * 60 * 60 * 1000); // Run once per day
+
+// Add this function near the other helper functions
+function handleLevelUp(player: Player): void {
+    player.maxHealth += HEALTH_PER_LEVEL;
+    player.health = player.maxHealth;  // Heal to full when leveling up
+    player.damage += DAMAGE_PER_LEVEL;
+
+    io.emit('levelUp', {
+        playerId: player.id,
+        level: player.level,
+        maxHealth: player.maxHealth,
+        damage: player.damage
+    });
 }
