@@ -107,15 +107,15 @@ const obstacles = [];
 const items = [];
 const WORLD_WIDTH = 10000;
 const WORLD_HEIGHT = 2000;
-const ENEMY_COUNT = 500;
+const ENEMY_COUNT = 200;
 const OBSTACLE_COUNT = 20;
 const ENEMY_CORAL_PROBABILITY = 0.3;
 const ENEMY_CORAL_HEALTH = 50;
 const ENEMY_CORAL_DAMAGE = 5;
 const PLAYER_MAX_HEALTH = 100;
 const ENEMY_MAX_HEALTH = 50;
-const PLAYER_DAMAGE = 10;
-const ENEMY_DAMAGE = 5;
+const PLAYER_DAMAGE = 1;
+const ENEMY_DAMAGE = 20;
 const ENEMY_TIERS = {
     common: { health: 20, speed: 0.5, damage: 5, probability: 0.4, color: '#808080' },
     uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3, color: '#008000' },
@@ -292,6 +292,7 @@ function respawnPlayer(player) {
     player.score = Math.max(0, player.score - 10);
     player.inventory = [];
     player.isInvulnerable = true;
+    player.lastDamageTime = 0; // Reset damage timer on respawn
     setTimeout(() => {
         player.isInvulnerable = false;
     }, RESPAWN_INVULNERABILITY_TIME);
@@ -406,6 +407,7 @@ io.on('connection', (socket) => {
                     if (!player.isInvulnerable) {
                         // Enemy damages player
                         player.health -= enemy.damage;
+                        player.lastDamageTime = Date.now(); // Add this line
                         io.emit('playerDamaged', { playerId: player.id, health: player.health });
                         // Player damages enemy
                         enemy.health -= player.damage;
@@ -588,3 +590,22 @@ function handleLevelUp(player) {
         damage: player.damage
     });
 }
+// Add these constants at the top with other constants
+const HEALTH_REGEN_RATE = 1; // Health points recovered per tick
+const HEALTH_REGEN_INTERVAL = 1000; // Milliseconds between health regeneration ticks
+const HEALTH_REGEN_COMBAT_DELAY = 0; // Delay before health starts regenerating after taking damage
+// Add health regeneration interval
+setInterval(() => {
+    Object.values(players).forEach(player => {
+        // Check if enough time has passed since last damage
+        const now = Date.now();
+        if (player.lastDamageTime && now - player.lastDamageTime < HEALTH_REGEN_COMBAT_DELAY) {
+            return; // Skip regeneration if player was recently damaged
+        }
+        // Regenerate health if not at max
+        if (player.health < player.maxHealth) {
+            player.health = Math.min(player.maxHealth, player.health + HEALTH_REGEN_RATE);
+            io.emit('playerUpdated', player);
+        }
+    });
+}, HEALTH_REGEN_INTERVAL);
