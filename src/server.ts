@@ -425,6 +425,28 @@ io.on('connection', (socket) => {
                     if (enemy.health <= 0) {
                         const index = enemies.findIndex(e => e.id === enemy.id);
                         if (index !== -1) {
+                            // Award XP before removing the enemy
+                            const xpGained = getXPFromEnemy(enemy);
+                            addXPToPlayer(player, xpGained);
+                            
+                            // Check for item drop
+                            const dropChance = DROP_CHANCES[enemy.tier];
+                            if (Math.random() < dropChance && player.inventory.length < MAX_INVENTORY_SIZE) {
+                                const newItem = {
+                                    id: Math.random().toString(36).substr(2, 9),
+                                    type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
+                                    x: enemy.x,
+                                    y: enemy.y
+                                };
+                                player.inventory.push(newItem);
+                                socket.emit('inventoryUpdate', player.inventory);
+                                socket.emit('itemCollected', { 
+                                    playerId: player.id, 
+                                    itemId: newItem.id,
+                                    itemType: newItem.type 
+                                });
+                            }
+
                             enemies.splice(index, 1);
                             io.emit('enemyDestroyed', enemy.id);
                             enemies.push(createEnemy());
