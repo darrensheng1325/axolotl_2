@@ -92,6 +92,7 @@ export class AuthUI {
         const password = this.loginPassword.value;
         
         // Use the server URL from the input field even during login
+        this.serverUrl = this.serverIPInput.value;
         const serverUrl = this.serverIPInput.value || this.serverUrl;
 
         try {
@@ -146,7 +147,8 @@ export class AuthUI {
         const username = this.registerUsername.value;
         const password = this.registerPassword.value;
         const confirmPassword = this.registerConfirmPassword.value;
-        const serverUrl = this.serverIPInput.value;
+        const serverUrl = prompt('Enter server IP address');
+        alert(serverUrl);
 
         if (!serverUrl) {
             alert('Please enter a server IP address');

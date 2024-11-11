@@ -99,7 +99,7 @@ const io = new socket_io_1.Server(httpsServer, {
         credentials: true
     }
 });
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 443;
 const players = {};
 const dots = [];
 const enemies = [];

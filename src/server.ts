@@ -99,7 +99,7 @@ const io = new Server(httpsServer, {
     }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 443;
 
 interface Player {
   id: string;
