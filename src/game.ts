@@ -111,6 +111,7 @@ export class Game {
   private exitButtonContainer: HTMLElement | null;
   private playerHue: number = 0;
   private playerColor: string = 'hsl(0, 100%, 50%)';
+  private colorPreviewCanvas: HTMLCanvasElement;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -128,13 +129,84 @@ export class Game {
       // Initialize sprites and other resources with relative paths
       this.playerSprite = new Image();
       this.playerSprite.src = './assets/player.png';
+      
+      // Create and set up preview canvas
+      this.colorPreviewCanvas = document.createElement('canvas');
+      this.colorPreviewCanvas.width = 64;  // Set fixed size for preview
+      this.colorPreviewCanvas.height = 64;
+      this.colorPreviewCanvas.style.width = '64px';
+      this.colorPreviewCanvas.style.height = '64px';
+      this.colorPreviewCanvas.style.imageRendering = 'pixelated';
+      
+      // Add preview canvas to the color picker
+      const previewContainer = document.createElement('div');
+      previewContainer.style.display = 'flex';
+      previewContainer.style.justifyContent = 'center';
+      previewContainer.style.marginTop = '10px';
+      previewContainer.appendChild(this.colorPreviewCanvas);
+      document.querySelector('.color-picker')?.appendChild(previewContainer);
+
+      // Set up color picker functionality
+      const hueSlider = document.getElementById('hueSlider') as HTMLInputElement;
+      const colorPreview = document.getElementById('colorPreview');
+      
+      if (hueSlider && colorPreview) {
+          // Load saved hue from localStorage
+          const savedHue = localStorage.getItem('playerHue');
+          if (savedHue !== null) {
+              this.playerHue = parseInt(savedHue);
+              hueSlider.value = savedHue;
+              this.playerColor = `hsl(${this.playerHue}, 100%, 50%)`;
+              colorPreview.style.backgroundColor = this.playerColor;
+              this.updateColorPreview();
+          }
+
+          // Preview color while sliding without saving
+          hueSlider.addEventListener('input', (e) => {
+              const value = (e.target as HTMLInputElement).value;
+              colorPreview.style.backgroundColor = `hsl(${value}, 100%, 50%)`;
+          });
+
+          // Add update color button handler
+          const updateColorButton = document.getElementById('updateColorButton');
+          if (updateColorButton) {
+            console.log('Update color button found');
+              updateColorButton.addEventListener('click', () => {
+                  const value = hueSlider.value;
+                  localStorage.setItem('playerHue', value);
+                  console.log('Player hue saved:', value);
+                  
+                  // Update game state after saving
+                  this.playerHue = parseInt(value);
+                  this.playerColor = `hsl(${this.playerHue}, 100%, 50%)`;
+                  
+                  if (this.playerSprite.complete) {
+                      this.updateColorPreview();
+                  }
+                  
+                  // Show confirmation message
+                  this.showFloatingText(
+                      this.canvas.width / 2,
+                      50,
+                      'Color Updated!',
+                      '#4CAF50',
+                      20
+                  );
+              });
+          }
+      }
+
+      // Wait for sprite to load before initializing
       this.playerSprite.onload = () => {
           console.log('Player sprite loaded successfully');
+          this.updateColorPreview();
           this.gameLoop();
       };
+      
       this.playerSprite.onerror = (e) => {
           console.error('Error loading player sprite:', e);
       };
+
       this.octopusSprite = new Image();
       this.octopusSprite.src = './assets/octopus.png';
       this.fishSprite = new Image();
@@ -190,28 +262,6 @@ export class Game {
       
       // Add exit button click handler
       this.exitButton?.addEventListener('click', () => this.handleExit());
-
-      // Set up color picker functionality
-      const hueSlider = document.getElementById('hueSlider') as HTMLInputElement;
-      const colorPreview = document.getElementById('colorPreview');
-      
-      if (hueSlider && colorPreview) {
-          // Load saved hue from localStorage
-          const savedHue = localStorage.getItem('playerHue');
-          if (savedHue) {
-              this.playerHue = parseInt(savedHue);
-              hueSlider.value = savedHue;
-              this.playerColor = `hsl(${this.playerHue}, 100%, 50%)`;
-              colorPreview.style.backgroundColor = this.playerColor;
-          }
-
-          hueSlider.addEventListener('input', (e) => {
-              this.playerHue = parseInt((e.target as HTMLInputElement).value);
-              this.playerColor = `hsl(${this.playerHue}, 100%, 50%)`;
-              colorPreview.style.backgroundColor = this.playerColor;
-              localStorage.setItem('playerHue', this.playerHue.toString());
-          });
-      }
   }
 
   private authenticate() {
@@ -1009,86 +1059,25 @@ export class Game {
               
               // Apply hue rotation if it's the current player
               if (id === this.socket?.id) {
-                  // Create an offscreen canvas for color manipulation
                   const offscreen = document.createElement('canvas');
                   offscreen.width = this.playerSprite.width;
                   offscreen.height = this.playerSprite.height;
                   const offCtx = offscreen.getContext('2d')!;
                   
-                  // Draw the original sprite
                   offCtx.drawImage(this.playerSprite, 0, 0);
-                  
-                  // Get image data to preserve transparency
                   const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
-                  const data = imageData.data;
-                  
-                  // Convert RGB to HSL, adjust hue, convert back to RGB
-                  for (let i = 0; i < data.length; i += 4) {
-                      // Skip fully transparent pixels
-                      if (data[i + 3] === 0) continue;
-                      
-                      // Convert RGB to HSL
-                      const r = data[i] / 255;
-                      const g = data[i + 1] / 255;
-                      const b = data[i + 2] / 255;
-                      
-                      const max = Math.max(r, g, b);
-                      const min = Math.min(r, g, b);
-                      let h, s, l = (max + min) / 2;
-                      
-                      if (max === min) {
-                          h = s = 0; // achromatic
-                      } else {
-                          const d = max - min;
-                          s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-                          switch (max) {
-                              case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-                              case g: h = (b - r) / d + 2; break;
-                              case b: h = (r - g) / d + 4; break;
-                              default: h = 0;
-                          }
-                          h /= 6;
-                      }
-                      
-                      // Adjust hue
-                      h = (h + this.playerHue / 360) % 1;
-                      
-                      // Convert back to RGB
-                      if (s === 0) {
-                          data[i] = data[i + 1] = data[i + 2] = l * 255;
-                      } else {
-                          const hue2rgb = (p: number, q: number, t: number) => {
-                              if (t < 0) t += 1;
-                              if (t > 1) t -= 1;
-                              if (t < 1/6) return p + (q - p) * 6 * t;
-                              if (t < 1/2) return q;
-                              if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-                              return p;
-                          };
-                          
-                          const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-                          const p = 2 * l - q;
-                          
-                          data[i] = hue2rgb(p, q, h + 1/3) * 255;
-                          data[i + 1] = hue2rgb(p, q, h) * 255;
-                          data[i + 2] = hue2rgb(p, q, h - 1/3) * 255;
-                      }
-                  }
-                  
-                  // Put the modified image data back
+                  this.applyHueRotation(offCtx, imageData);
                   offCtx.putImageData(imageData, 0, 0);
                   
-                  // Draw the color-adjusted sprite
                   this.ctx.drawImage(
-                      offscreen, 
-                      -this.playerSprite.width / 2, 
+                      offscreen,
+                      -this.playerSprite.width / 2,
                       -this.playerSprite.height / 2
                   );
               } else {
-                  // Draw other players normally
                   this.ctx.drawImage(
-                      this.playerSprite, 
-                      -this.playerSprite.width / 2, 
+                      this.playerSprite,
+                      -this.playerSprite.width / 2,
                       -this.playerSprite.height / 2
                   );
               }
@@ -1534,5 +1523,89 @@ export class Game {
 
       // Reset canvas visibility
       this.canvas.style.zIndex = '0';
+  }
+
+  private applyHueRotation(ctx: CanvasRenderingContext2D, imageData: ImageData): void {
+      const data = imageData.data;
+      
+      for (let i = 0; i < data.length; i += 4) {
+          // Skip fully transparent pixels
+          if (data[i + 3] === 0) continue;
+          
+          // Convert RGB to HSL
+          const r = data[i] / 255;
+          const g = data[i + 1] / 255;
+          const b = data[i + 2] / 255;
+          
+          const max = Math.max(r, g, b);
+          const min = Math.min(r, g, b);
+          let h, s, l = (max + min) / 2;
+          
+          if (max === min) {
+              h = s = 0; // achromatic
+          } else {
+              const d = max - min;
+              s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+              switch (max) {
+                  case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                  case g: h = (b - r) / d + 2; break;
+                  case b: h = (r - g) / d + 4; break;
+                  default: h = 0;
+              }
+              h /= 6;
+          }
+          
+          // Only adjust hue if the pixel has some saturation
+          if (s > 0.1) {  // Threshold for considering a pixel colored
+              h = (h + this.playerHue / 360) % 1;
+              
+              // Convert back to RGB
+              if (s === 0) {
+                  data[i] = data[i + 1] = data[i + 2] = l * 255;
+              } else {
+                  const hue2rgb = (p: number, q: number, t: number) => {
+                      if (t < 0) t += 1;
+                      if (t > 1) t -= 1;
+                      if (t < 1/6) return p + (q - p) * 6 * t;
+                      if (t < 1/2) return q;
+                      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                      return p;
+                  };
+                  
+                  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                  const p = 2 * l - q;
+                  
+                  data[i] = hue2rgb(p, q, h + 1/3) * 255;
+                  data[i + 1] = hue2rgb(p, q, h) * 255;
+                  data[i + 2] = hue2rgb(p, q, h - 1/3) * 255;
+              }
+          }
+      }
+  }
+
+  private updateColorPreview() {
+      if (!this.playerSprite.complete) return;
+
+      const ctx = this.colorPreviewCanvas.getContext('2d')!;
+      ctx.clearRect(0, 0, this.colorPreviewCanvas.width, this.colorPreviewCanvas.height);
+      
+      // Draw the sprite centered in the preview
+      const scale = Math.min(
+          this.colorPreviewCanvas.width / this.playerSprite.width,
+          this.colorPreviewCanvas.height / this.playerSprite.height
+      );
+      
+      const x = (this.colorPreviewCanvas.width - this.playerSprite.width * scale) / 2;
+      const y = (this.colorPreviewCanvas.height - this.playerSprite.height * scale) / 2;
+      
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      ctx.drawImage(this.playerSprite, 0, 0);
+      
+      const imageData = ctx.getImageData(0, 0, this.colorPreviewCanvas.width, this.colorPreviewCanvas.height);
+      this.applyHueRotation(ctx, imageData);
+      ctx.putImageData(imageData, 0, 0);
+      ctx.restore();
   }
 }
