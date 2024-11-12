@@ -389,7 +389,8 @@ function initializeGame(messageData) {
         maxHealth: maxHealth,
         damage: damage,
         lastDamageTaken: 0,
-        isRegenerating: false
+        isRegenerating: false,
+        loadout: Array(10).fill(null),  // Initialize with 10 null slots
     };
 
     console.log('Initialized player with stats:', {
@@ -698,6 +699,14 @@ case 'requestRespawn':
     var deadPlayer = players[socket.id];
     if (deadPlayer) {
         respawnPlayer(deadPlayer);
+    }
+    break;
+case 'updateLoadout':
+    var player = players[socket.id];
+    if (player) {
+        player.loadout = data.loadout;
+        player.inventory = data.inventory;
+        socket.emit('playerUpdated', player);
     }
     break;
 // ... (handle other socket events)

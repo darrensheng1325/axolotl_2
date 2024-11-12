@@ -293,6 +293,9 @@ export class Game {
 
       document.body.appendChild(loadoutBar);
 
+      // Set up item sprites
+      this.setupItemSprites();
+
       // Add drag-and-drop event listeners
       this.setupDragAndDrop();
 
@@ -518,15 +521,25 @@ export class Game {
       });
 
       this.socket.on('itemCollected', (data: { playerId: string, itemId: string }) => {
-          this.items = this.items.filter(item => item.id !== data.itemId);
+          const player = this.players.get(data.playerId);
+          if (player) {
+              this.items = this.items.filter(item => item.id !== data.itemId);
+              if (data.playerId === this.socket.id) {
+                  // Update inventory display if it's open
+                  if (this.isInventoryOpen) {
+                      this.updateInventoryDisplay();
+                  }
+              }
+          }
       });
 
       this.socket.on('inventoryUpdate', (inventory: Item[]) => {
-          const socketId = this.socket.id;
-          if (socketId) {
-              const player = this.players.get(socketId);
-              if (player) {
-                  player.inventory = inventory;
+          const player = this.players.get(this.socket?.id || '');
+          if (player) {
+              player.inventory = inventory;
+              // Update inventory display if it's open
+              if (this.isInventoryOpen) {
+                  this.updateInventoryDisplay();
               }
           }
       });
@@ -648,6 +661,20 @@ export class Game {
           rotation: number;
       }>) => {
           this.sands = sands;
+      });
+
+      this.socket.on('playerUpdated', (updatedPlayer: Player) => {
+          const player = this.players.get(updatedPlayer.id);
+          if (player) {
+              Object.assign(player, updatedPlayer);
+              // Update displays if this is the current player
+              if (updatedPlayer.id === this.socket?.id) {
+                  if (this.isInventoryOpen) {
+                      this.updateInventoryDisplay();
+                  }
+                  this.updateLoadoutDisplay();  // Always update loadout display
+              }
+          }
       });
   }
 
@@ -936,8 +963,12 @@ export class Game {
           const dx = player.x - item.x;
           const dy = player.y - item.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance < 40) { // Assuming player radius is 20
+          if (distance < 40) {
               this.socket.emit('collectItem', item.id);
+              // Update displays immediately for better responsiveness
+              if (this.isInventoryOpen) {
+                  this.updateInventoryDisplay();
+              }
           }
       });
   }
@@ -1280,9 +1311,6 @@ export class Game {
       // Draw minimap (after restoring context)
       this.drawMinimap();
 
-      // Draw loadout bar
-      this.renderLoadoutBar();
-
       // Draw floating texts
       this.floatingTexts = this.floatingTexts.filter(text => {
           text.y -= 1;
@@ -1309,10 +1337,21 @@ export class Game {
   }
 
   private setupItemSprites() {
+      this.itemSprites = {};
       const itemTypes = ['health_potion', 'speed_boost', 'shield'];
+      
       itemTypes.forEach(type => {
           const sprite = new Image();
           sprite.src = `./assets/${type}.png`;
+          sprite.onload = () => {
+              console.log(`Loaded sprite for ${type}`);
+              // Update displays when sprites are loaded
+              this.updateInventoryDisplay();
+              this.updateLoadoutDisplay();
+          };
+          sprite.onerror = (e) => {
+              console.error(`Error loading sprite for ${type}:`, e);
+          };
           this.itemSprites[type] = sprite;
       });
   }
@@ -1643,22 +1682,47 @@ export class Game {
       const item = player.inventory[inventoryIndex];
       if (!item) return;
 
+      console.log('Moving item from inventory to loadout:', {
+          item,
+          fromIndex: inventoryIndex,
+          toSlot: loadoutSlot
+      });
+
+      // Create a copy of the current state
+      const newInventory = [...player.inventory];
+      const newLoadout = [...player.loadout];
+
       // Remove item from inventory
-      player.inventory.splice(inventoryIndex, 1);
+      newInventory.splice(inventoryIndex, 1);
       
       // If there's an item in the loadout slot, move it to inventory
-      const existingItem = player.loadout[loadoutSlot];
+      const existingItem = newLoadout[loadoutSlot];
       if (existingItem) {
-          player.inventory.push(existingItem);
+          newInventory.push(existingItem);
       }
 
       // Equip new item to loadout
-      player.loadout[loadoutSlot] = item;
+      newLoadout[loadoutSlot] = item;
+
+      // Update player's state
+      player.inventory = newInventory;
+      player.loadout = newLoadout;
 
       // Update server
       this.socket?.emit('updateLoadout', {
-          loadout: player.loadout,
-          inventory: player.inventory
+          loadout: newLoadout,
+          inventory: newInventory
+      });
+
+      // Force immediate visual updates
+      requestAnimationFrame(() => {
+          this.updateInventoryDisplay();
+          this.updateLoadoutDisplay();
+      });
+
+      console.log('Updated player state:', {
+          inventory: player.inventory,
+          loadout: player.loadout
       });
   }
 
@@ -1674,76 +1738,82 @@ export class Game {
       
       // Remove from loadout
       player.loadout[slot] = null;
+
+      // Update server
+      this.socket?.emit('updateLoadout', {
+          loadout: player.loadout,
+          inventory: player.inventory
+      });
+
+      // Update displays
+      if (this.isInventoryOpen) {
+          this.updateInventoryDisplay();
+      }
+      this.updateLoadoutDisplay();
   }
 
-  private renderLoadoutBar() {
+  private updateLoadoutDisplay() {
       const player = this.players.get(this.socket?.id || '');
       if (!player) return;
 
-      const barWidth = 500;  // Increased width for 10 slots
-      const barHeight = 60;
-      const x = (this.canvas.width - barWidth) / 2;
-      const y = this.canvas.height - barHeight - 20;
+      const slots = document.querySelectorAll('.loadout-slot');
+      slots.forEach((slot, index) => {
+          // Clear existing content
+          slot.innerHTML = '';
 
-      // Draw loadout background
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      this.ctx.fillRect(x, y, barWidth, barHeight);
-
-      // Draw loadout slots
-      player.loadout.forEach((item, index) => {
-          const slotX = x + (index * (barWidth / this.LOADOUT_SLOTS));
-          const slotY = y;
-          const slotSize = barHeight;
-
-          // Draw slot background
-          this.ctx.fillStyle = 'rgba(50, 50, 50, 0.5)';
-          this.ctx.fillRect(slotX + 5, slotY + 5, slotSize - 10, slotSize - 10);
-
-          // Draw item if exists
+          // Add item if it exists in that slot
+          const item = player.loadout[index];
           if (item) {
-              const sprite = this.itemSprites[item.type];
-              this.ctx.drawImage(sprite, slotX + 10, slotY + 10, slotSize - 20, slotSize - 20);
+              const img = document.createElement('img');
+              img.src = `./assets/${item.type}.png`;
+              img.alt = item.type;
+              img.style.width = '80%';
+              img.style.height = '80%';
+              img.style.objectFit = 'contain';
+              slot.appendChild(img);
           }
 
-          // Draw key binding
-          this.ctx.fillStyle = 'white';
-          this.ctx.font = '16px Arial';
-          this.ctx.fillText(this.LOADOUT_KEY_BINDINGS[index], slotX + 5, slotY + 20);
+          // Add key binding text
+          const keyText = document.createElement('div');
+          keyText.className = 'key-binding';
+          keyText.textContent = this.LOADOUT_KEY_BINDINGS[index];
+          slot.appendChild(keyText);
       });
   }
 
   private setupDragAndDrop() {
-      // Make inventory items draggable
-      document.addEventListener('dragstart', (e: Event) => {
-          const dragEvent = e as DragEvent;
-          const target = dragEvent.target as HTMLElement;
-          if (target.classList.contains('inventory-item')) {
-              dragEvent.dataTransfer?.setData('text/plain', target.dataset.index || '');
-          }
-      });
-
       // Handle drops on loadout slots
       const slots = document.querySelectorAll('.loadout-slot');
-      slots.forEach(slot => {
+      slots.forEach((slot, slotIndex) => {
+          // Set the slot index as a data attribute
+          (slot as HTMLElement).dataset.slot = slotIndex.toString();
+
+          slot.addEventListener('dragenter', (e: Event) => {
+              e.preventDefault();
+              (e.currentTarget as HTMLElement).classList.add('drag-over');
+          });
+
           slot.addEventListener('dragover', (e: Event) => {
               e.preventDefault();
-              const target = e.target as HTMLElement;
-              target.style.backgroundColor = 'rgba(100, 100, 100, 0.5)';
+              const dragEvent = e as DragEvent;
+              dragEvent.dataTransfer!.dropEffect = 'move';
+              (e.currentTarget as HTMLElement).classList.add('drag-over');
           });
 
           slot.addEventListener('dragleave', (e: Event) => {
-              const target = e.target as HTMLElement;
-              target.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+              (e.currentTarget as HTMLElement).classList.remove('drag-over');
           });
 
           slot.addEventListener('drop', (e: Event) => {
               e.preventDefault();
               const dragEvent = e as DragEvent;
-              const target = dragEvent.target as HTMLElement;
-              target.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+              const target = e.currentTarget as HTMLElement;
+              target.classList.remove('drag-over');
               
               const itemIndex = parseInt(dragEvent.dataTransfer?.getData('text/plain') || '-1');
               const slotIndex = parseInt(target.dataset.slot || '-1');
+              
+              console.log('Drop event:', { itemIndex, slotIndex });
               
               if (itemIndex >= 0 && slotIndex >= 0) {
                   this.equipItemToLoadout(itemIndex, slotIndex);
@@ -1752,7 +1822,7 @@ export class Game {
       });
   }
 
-  // Add new method to update inventory display
+  // Update the updateInventoryDisplay method
   private updateInventoryDisplay() {
       if (!this.inventoryPanel) return;
       
@@ -1780,9 +1850,16 @@ export class Game {
           itemElement.draggable = true;
           itemElement.dataset.index = index.toString();
 
+          // Add drag start event listener directly to the item
+          itemElement.addEventListener('dragstart', (e: DragEvent) => {
+              e.dataTransfer?.setData('text/plain', index.toString());
+              e.dataTransfer!.effectAllowed = 'move';
+          });
+
           const img = document.createElement('img');
           img.src = `./assets/${item.type}.png`;
           img.alt = item.type;
+          img.draggable = false; // Prevent image from being dragged instead of container
           itemElement.appendChild(img);
 
           grid.appendChild(itemElement);
