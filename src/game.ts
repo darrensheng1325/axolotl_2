@@ -1782,6 +1782,48 @@ export class Game {
   }
 
   private setupDragAndDrop() {
+      // Add global drop handler
+      document.addEventListener('dragover', (e: Event) => {
+          e.preventDefault();
+      });
+
+      document.addEventListener('drop', (e: Event) => {
+          e.preventDefault();
+          const dragEvent = e as DragEvent;
+          const target = e.target as HTMLElement;
+          
+          // If not dropping on loadout slot or inventory grid, return item to inventory
+          if (!target.closest('.loadout-slot') && !target.closest('.inventory-grid')) {
+              const loadoutSlot = dragEvent.dataTransfer?.getData('text/loadoutSlot');
+              if (loadoutSlot) {
+                  this.moveItemToInventory(parseInt(loadoutSlot));
+              }
+          }
+      });
+
+      // Make loadout items draggable
+      const updateLoadoutDraggable = () => {
+          const slots = document.querySelectorAll('.loadout-slot');
+          slots.forEach((slot, slotIndex) => {
+              const img = slot.querySelector('img');
+              if (img) {
+                  img.draggable = true;
+                  img.addEventListener('dragstart', (e: Event) => {
+                      const dragEvent = e as DragEvent;
+                      dragEvent.dataTransfer?.setData('text/loadoutSlot', slotIndex.toString());
+                      dragEvent.dataTransfer!.effectAllowed = 'move';
+                  });
+              }
+          });
+      };
+
+      // Update loadout items draggable state whenever the display updates
+      const originalUpdateLoadoutDisplay = this.updateLoadoutDisplay.bind(this);
+      this.updateLoadoutDisplay = () => {
+          originalUpdateLoadoutDisplay();
+          updateLoadoutDraggable();
+      };
+
       // Handle drops on loadout slots
       const slots = document.querySelectorAll('.loadout-slot');
       slots.forEach((slot, slotIndex) => {
@@ -1810,19 +1852,78 @@ export class Game {
               const target = e.currentTarget as HTMLElement;
               target.classList.remove('drag-over');
               
-              const itemIndex = parseInt(dragEvent.dataTransfer?.getData('text/plain') || '-1');
-              const slotIndex = parseInt(target.dataset.slot || '-1');
+              // Check if the drop is from inventory or loadout
+              const inventoryIndex = dragEvent.dataTransfer?.getData('text/plain');
+              const fromLoadoutSlot = dragEvent.dataTransfer?.getData('text/loadoutSlot');
               
-              console.log('Drop event:', { itemIndex, slotIndex });
-              
-              if (itemIndex >= 0 && slotIndex >= 0) {
-                  this.equipItemToLoadout(itemIndex, slotIndex);
+              if (inventoryIndex) {
+                  // Drop from inventory to loadout
+                  const index = parseInt(inventoryIndex);
+                  const slot = parseInt(target.dataset.slot || '-1');
+                  if (index >= 0 && slot >= 0) {
+                      this.equipItemToLoadout(index, slot);
+                  }
+              } else if (fromLoadoutSlot) {
+                  // Drop from loadout to loadout (swap items)
+                  const fromSlot = parseInt(fromLoadoutSlot);
+                  const toSlot = slotIndex;
+                  if (fromSlot !== toSlot) {
+                      this.swapLoadoutItems(fromSlot, toSlot);
+                  }
               }
           });
       });
+
+      // Make inventory panel a drop target for loadout items
+      if (this.inventoryPanel) {
+          const grid = this.inventoryPanel.querySelector('.inventory-grid');
+          if (grid) {
+              grid.addEventListener('dragover', (e: Event) => {
+                  e.preventDefault();
+                  const dragEvent = e as DragEvent;
+                  dragEvent.dataTransfer!.dropEffect = 'move';
+                  grid.classList.add('drag-over');
+              });
+
+              grid.addEventListener('dragleave', (e: Event) => {
+                  grid.classList.remove('drag-over');
+              });
+
+              grid.addEventListener('drop', (e: Event) => {
+                  e.preventDefault();
+                  grid.classList.remove('drag-over');
+                  const dragEvent = e as DragEvent;
+                  const loadoutSlot = dragEvent.dataTransfer?.getData('text/loadoutSlot');
+                  if (loadoutSlot) {
+                      this.moveItemToInventory(parseInt(loadoutSlot));
+                  }
+              });
+          }
+      }
   }
 
-  // Update the updateInventoryDisplay method
+  // Add method to swap loadout items
+  private swapLoadoutItems(fromSlot: number, toSlot: number) {
+      const player = this.players.get(this.socket?.id || '');
+      if (!player) return;
+
+      const newLoadout = [...player.loadout];
+      [newLoadout[fromSlot], newLoadout[toSlot]] = [newLoadout[toSlot], newLoadout[fromSlot]];
+
+      // Update player's state
+      player.loadout = newLoadout;
+
+      // Update server
+      this.socket?.emit('updateLoadout', {
+          loadout: newLoadout,
+          inventory: player.inventory
+      });
+
+      // Force immediate visual updates
+      this.updateLoadoutDisplay();
+  }
+
+  // Update the updateInventoryDisplay method to properly set up drag events
   private updateInventoryDisplay() {
       if (!this.inventoryPanel) return;
       
@@ -1850,10 +1951,16 @@ export class Game {
           itemElement.draggable = true;
           itemElement.dataset.index = index.toString();
 
-          // Add drag start event listener directly to the item
-          itemElement.addEventListener('dragstart', (e: DragEvent) => {
-              e.dataTransfer?.setData('text/plain', index.toString());
-              e.dataTransfer!.effectAllowed = 'move';
+          // Add drag start event listener
+          itemElement.addEventListener('dragstart', (e: Event) => {
+              const dragEvent = e as DragEvent;
+              dragEvent.dataTransfer?.setData('text/plain', index.toString());
+              dragEvent.dataTransfer!.effectAllowed = 'move';
+              itemElement.classList.add('dragging');
+          });
+
+          itemElement.addEventListener('dragend', () => {
+              itemElement.classList.remove('dragging');
           });
 
           const img = document.createElement('img');
@@ -1866,5 +1973,49 @@ export class Game {
       });
 
       content.appendChild(grid);
+  }
+
+  // Add this method to the Game class
+  private moveItemToInventory(loadoutSlot: number) {
+      const player = this.players.get(this.socket?.id || '');
+      if (!player) return;
+
+      const item = player.loadout[loadoutSlot];
+      if (!item) return;
+
+      console.log('Moving item from loadout to inventory:', {
+          item,
+          fromSlot: loadoutSlot
+      });
+
+      // Create a copy of the current state
+      const newInventory = [...player.inventory];
+      const newLoadout = [...player.loadout];
+
+      // Move item to inventory
+      newInventory.push(item);
+      // Remove from loadout
+      newLoadout[loadoutSlot] = null;
+
+      // Update player's state
+      player.inventory = newInventory;
+      player.loadout = newLoadout;
+
+      // Update server
+      this.socket?.emit('updateLoadout', {
+          loadout: newLoadout,
+          inventory: newInventory
+      });
+
+      // Force immediate visual updates
+      requestAnimationFrame(() => {
+          this.updateInventoryDisplay();
+          this.updateLoadoutDisplay();
+      });
+
+      console.log('Updated player state:', {
+          inventory: player.inventory,
+          loadout: player.loadout
+      });
   }
 }
