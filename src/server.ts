@@ -99,7 +99,7 @@ const io = new Server(httpsServer, {
     }
 });
 
-const PORT = process.env.PORT || 443;
+const PORT = process.env.PORT || 3000;
 
 interface Player {
   id: string;
@@ -121,6 +121,7 @@ interface Player {
   xp: number;
   xpToNextLevel: number;
   lastDamageTime?: number;
+  loadout: (Item | null)[];
 }
 
 interface Dot {
@@ -462,7 +463,8 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 isInvulnerable: true,
                 level: savedProgress?.level || 1,
                 xp: savedProgress?.xp || 0,
-                xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1)
+                xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1),
+                loadout: Array(10).fill(null)
             };
 
             // Save initial state
@@ -711,6 +713,15 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         const player = players[socket.id];
         if (player) {
             player.name = newName;
+            io.emit('playerUpdated', player);
+        }
+    });
+
+    socket.on('updateLoadout', (data: { loadout: (Item | null)[]; inventory: Item[] }) => {
+        const player = players[socket.id];
+        if (player) {
+            player.loadout = data.loadout;
+            player.inventory = data.inventory;
             io.emit('playerUpdated', player);
         }
     });

@@ -112,6 +112,10 @@ export class Game {
   private playerHue: number = 0;
   private playerColor: string = 'hsl(0, 100%, 50%)';
   private colorPreviewCanvas: HTMLCanvasElement;
+  private readonly LOADOUT_SLOTS = 10;
+  private readonly LOADOUT_KEY_BINDINGS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+  // Add to class properties
+  private inventoryPanel: HTMLDivElement | null = null;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -262,6 +266,48 @@ export class Game {
       
       // Add exit button click handler
       this.exitButton?.addEventListener('click', () => this.handleExit());
+
+      // Create loadout bar HTML element
+      const loadoutBar = document.createElement('div');
+      loadoutBar.id = 'loadoutBar';
+      loadoutBar.style.position = 'fixed';
+      loadoutBar.style.bottom = '20px';
+      loadoutBar.style.left = '50%';
+      loadoutBar.style.transform = 'translateX(-50%)';
+      loadoutBar.style.display = 'flex';
+      loadoutBar.style.gap = '5px';
+      loadoutBar.style.zIndex = '1000';
+
+      // Create slots
+      for (let i = 0; i < this.LOADOUT_SLOTS; i++) {
+          const slot = document.createElement('div');
+          slot.className = 'loadout-slot';
+          slot.dataset.slot = i.toString();
+          slot.style.width = '50px';
+          slot.style.height = '50px';
+          slot.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+          slot.style.border = '2px solid #666';
+          slot.style.borderRadius = '5px';
+          loadoutBar.appendChild(slot);
+      }
+
+      document.body.appendChild(loadoutBar);
+
+      // Add drag-and-drop event listeners
+      this.setupDragAndDrop();
+
+      // Create inventory panel
+      this.inventoryPanel = document.createElement('div');
+      this.inventoryPanel.id = 'inventoryPanel';
+      this.inventoryPanel.className = 'inventory-panel';
+      this.inventoryPanel.style.display = 'none';
+      
+      // Create inventory content
+      const inventoryContent = document.createElement('div');
+      inventoryContent.className = 'inventory-content';
+      this.inventoryPanel.appendChild(inventoryContent);
+      
+      document.body.appendChild(this.inventoryPanel);
   }
 
   private authenticate() {
@@ -625,16 +671,16 @@ export class Game {
               return;
           }
 
-          if (this.isInventoryOpen) {
-              if (event.key >= '1' && event.key <= '5') {
-                  const index = parseInt(event.key) - 1;
-                  this.useItemFromInventory(index);
-              }
-              return;
-          }
-
           this.keysPressed.add(event.key);
           this.updatePlayerVelocity();
+
+          // Handle loadout key bindings
+          const key = event.key;
+          const slotIndex = this.LOADOUT_KEY_BINDINGS.indexOf(key);
+          
+          if (slotIndex !== -1) {
+              this.useLoadoutItem(slotIndex);
+          }
       });
 
       document.addEventListener('keyup', (event) => {
@@ -662,6 +708,24 @@ export class Game {
               this.socket.emit('updateName', this.nameInput.value);
           }
       });
+
+      // Add drag and drop handlers for loadout
+      const loadoutBar = document.getElementById('loadoutBar');
+      if (loadoutBar) {
+          loadoutBar.addEventListener('dragover', (e) => {
+              e.preventDefault();
+          });
+
+          loadoutBar.addEventListener('drop', (e) => {
+              e.preventDefault();
+              const itemIndex = parseInt(e.dataTransfer?.getData('text/plain') || '-1');
+              const slot = (e.target as HTMLElement).dataset.slot;
+              
+              if (itemIndex >= 0 && slot) {
+                  this.equipItemToLoadout(itemIndex, parseInt(slot));
+              }
+          });
+      }
   }
 
   private updatePlayerVelocity() {
@@ -879,60 +943,24 @@ export class Game {
   }
 
   private toggleInventory() {
-      this.isInventoryOpen = !this.isInventoryOpen;
-  }
-
-  private useItemFromInventory(index: number) {
-      const socketId = this.socket.id;
-      if (socketId) {
-          const player = this.players.get(socketId);
-          if (player && player.inventory[index]) {
-              this.socket.emit('useItem', player.inventory[index].id);
-          }
+      if (!this.inventoryPanel) return;
+      
+      const isOpen = this.inventoryPanel.style.display === 'block';
+      if (!isOpen) {
+          this.inventoryPanel.style.display = 'block';
+          setTimeout(() => {
+              this.inventoryPanel?.classList.add('open');
+          }, 10);
+          this.updateInventoryDisplay();
+      } else {
+          this.inventoryPanel.classList.remove('open');
+          setTimeout(() => {
+              if (this.inventoryPanel) {
+                  this.inventoryPanel.style.display = 'none';
+              }
+          }, 300); // Match transition duration
       }
-  }
-
-  private renderInventoryMenu() {
-      const socketId = this.socket.id;
-      if (!socketId) return;
-
-      const player = this.players.get(socketId);
-      if (!player) return;
-
-      // Darken the background
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-      // Draw inventory background
-      this.ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
-      this.ctx.fillRect(200, 100, 400, 400);
-
-      // Draw inventory title
-      this.ctx.fillStyle = 'black';
-      this.ctx.font = '24px Arial';
-      this.ctx.fillText('Inventory', 350, 140);
-
-      // Draw inventory slots
-      player.inventory.forEach((item, index) => {
-          const x = 250 + (index % 3) * 100;
-          const y = 200 + Math.floor(index / 3) * 100;
-
-          this.ctx.fillStyle = 'white';
-          this.ctx.fillRect(x, y, 80, 80);
-
-          const sprite = this.itemSprites[item.type];
-          this.ctx.drawImage(sprite, x + 10, y + 10, 60, 60);
-
-          this.ctx.fillStyle = 'black';
-          this.ctx.font = '16px Arial';
-          this.ctx.fillText(`${index + 1}`, x + 5, y + 20);
-      });
-
-      // Draw instructions
-      this.ctx.fillStyle = 'black';
-      this.ctx.font = '16px Arial';
-      this.ctx.fillText('Press 1-5 to use an item', 300, 480);
-      this.ctx.fillText('Press I to close inventory', 300, 510);
+      this.isInventoryOpen = !isOpen;
   }
 
   private handlePlayerMoved(playerData: Player) {
@@ -960,301 +988,300 @@ export class Game {
       this.ctx.fillStyle = '#00FFFF';
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-      if (!this.isInventoryOpen) {
-          // Get current player for camera
-          const currentSocketId = this.socket?.id;
-          if (currentSocketId) {
-              const currentPlayer = this.players.get(currentSocketId);
-              if (currentPlayer) {
-                  this.updateCamera(currentPlayer);
-              }
+      // Get current player for camera
+      const currentSocketId = this.socket?.id;
+      if (currentSocketId) {
+          const currentPlayer = this.players.get(currentSocketId);
+          if (currentPlayer) {
+              this.updateCamera(currentPlayer);
           }
+      }
 
+      this.ctx.save();
+      this.ctx.translate(-this.cameraX, -this.cameraY);
+
+      // Draw world bounds
+      this.ctx.strokeStyle = 'black';
+      this.ctx.strokeRect(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT);
+
+      // Draw zone indicators with updated colors
+      const zones = [
+          { name: 'Common', end: 2000, color: 'rgba(128, 128, 128, 0.1)' },    // Lighter gray
+          { name: 'Uncommon', end: 4000, color: 'rgba(144, 238, 144, 0.1)' },  // Light green (LightGreen)
+          { name: 'Rare', end: 6000, color: 'rgba(0, 0, 255, 0.1)' },          // Blue
+          { name: 'Epic', end: 8000, color: 'rgba(128, 0, 128, 0.1)' },        // Purple
+          { name: 'Legendary', end: 9000, color: 'rgba(255, 165, 0, 0.1)' },   // Orange
+          { name: 'Mythic', end: this.WORLD_WIDTH, color: 'rgba(255, 0, 0, 0.1)' }  // Red
+      ];
+
+      let start = 0;
+      zones.forEach(zone => {
+          // Draw zone background
+          this.ctx.fillStyle = zone.color;
+          this.ctx.fillRect(start, 0, zone.end - start, this.WORLD_HEIGHT);
+          
+          // Draw zone name
+          this.ctx.fillStyle = 'black';
+          this.ctx.font = '20px Arial';
+          this.ctx.fillText(zone.name, start + 10, 30);
+          
+          start = zone.end;
+      });
+
+      // Draw dots
+      this.ctx.fillStyle = 'yellow';
+      this.dots.forEach(dot => {
+          this.ctx.beginPath();
+          this.ctx.arc(dot.x, dot.y, this.DOT_SIZE, 0, Math.PI * 2);
+          this.ctx.fill();
+      });
+
+      // Draw sand first
+      this.sands.forEach(sand => {
           this.ctx.save();
-          this.ctx.translate(-this.cameraX, -this.cameraY);
-
-          // Draw world bounds
-          this.ctx.strokeStyle = 'black';
-          this.ctx.strokeRect(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT);
-
-          // Draw zone indicators with updated colors
-          const zones = [
-              { name: 'Common', end: 2000, color: 'rgba(128, 128, 128, 0.1)' },    // Lighter gray
-              { name: 'Uncommon', end: 4000, color: 'rgba(144, 238, 144, 0.1)' },  // Light green (LightGreen)
-              { name: 'Rare', end: 6000, color: 'rgba(0, 0, 255, 0.1)' },          // Blue
-              { name: 'Epic', end: 8000, color: 'rgba(128, 0, 128, 0.1)' },        // Purple
-              { name: 'Legendary', end: 9000, color: 'rgba(255, 165, 0, 0.1)' },   // Orange
-              { name: 'Mythic', end: this.WORLD_WIDTH, color: 'rgba(255, 0, 0, 0.1)' }  // Red
-          ];
-
-          let start = 0;
-          zones.forEach(zone => {
-              // Draw zone background
-              this.ctx.fillStyle = zone.color;
-              this.ctx.fillRect(start, 0, zone.end - start, this.WORLD_HEIGHT);
-              
-              // Draw zone name
-              this.ctx.fillStyle = 'black';
-              this.ctx.font = '20px Arial';
-              this.ctx.fillText(zone.name, start + 10, 30);
-              
-              start = zone.end;
-          });
-
-          // Draw dots
-          this.ctx.fillStyle = 'yellow';
-          this.dots.forEach(dot => {
-              this.ctx.beginPath();
-              this.ctx.arc(dot.x, dot.y, this.DOT_SIZE, 0, Math.PI * 2);
-              this.ctx.fill();
-          });
-
-          // Draw sand first
-          this.sands.forEach(sand => {
-              this.ctx.save();
-              this.ctx.translate(sand.x, sand.y);
-              
-              // Draw sand blob with opaque color
-              this.ctx.fillStyle = '#FFE4B5';  // Moccasin color, fully opaque
-              this.ctx.beginPath();
-              
-              // Draw static blob shape using the saved rotation
-              this.ctx.moveTo(sand.radius * 0.8, 0);
-              for (let angle = 0; angle <= Math.PI * 2; angle += Math.PI / 8) {
-                  // Use the sand's saved rotation for consistent shape
-                  const currentAngle = angle + sand.rotation;
-                  const randomRadius = sand.radius * 0.9; // Less variation for more consistent shape
-                  const x = Math.cos(currentAngle) * randomRadius;
-                  const y = Math.sin(currentAngle) * randomRadius;
-                  this.ctx.lineTo(x, y);
-              }
-              
-              this.ctx.closePath();
-              this.ctx.fill();
-              
-              this.ctx.restore();
-          });
-
-          // Draw decorations (palm trees)
-          this.decorations.forEach(decoration => {
-              this.ctx.save();
-              this.ctx.translate(decoration.x, decoration.y);
-              this.ctx.scale(decoration.scale, decoration.scale);
-              
-              // Draw palm tree
-              this.ctx.drawImage(
-                  this.palmSprite,
-                  -this.palmSprite.width / 2,
-                  -this.palmSprite.height / 2
-              );
-              
-              this.ctx.restore();
-          });
-
-          // Draw players
-          this.players.forEach((player, id) => {
-              this.ctx.save();
-              this.ctx.translate(player.x, player.y);
-              this.ctx.rotate(player.angle);
-              
-              // Apply hue rotation if it's the current player
-              if (id === this.socket?.id) {
-                  const offscreen = document.createElement('canvas');
-                  offscreen.width = this.playerSprite.width;
-                  offscreen.height = this.playerSprite.height;
-                  const offCtx = offscreen.getContext('2d')!;
-                  
-                  offCtx.drawImage(this.playerSprite, 0, 0);
-                  const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
-                  this.applyHueRotation(offCtx, imageData);
-                  offCtx.putImageData(imageData, 0, 0);
-                  
-                  this.ctx.drawImage(
-                      offscreen,
-                      -this.playerSprite.width / 2,
-                      -this.playerSprite.height / 2
-                  );
-              } else {
-                  this.ctx.drawImage(
-                      this.playerSprite,
-                      -this.playerSprite.width / 2,
-                      -this.playerSprite.height / 2
-                  );
-              }
-              
-              this.ctx.restore();
-
-              // Draw player name above player
-              this.ctx.fillStyle = 'white';
-              this.ctx.strokeStyle = 'black';
-              this.ctx.lineWidth = 2;
-              this.ctx.font = '16px Arial';
-              this.ctx.textAlign = 'center';
-              const nameText = player.name || 'Anonymous';
-              
-              // Draw text stroke
-              this.ctx.strokeText(nameText, player.x, player.y - 50);
-              // Draw text fill
-              this.ctx.fillText(nameText, player.x, player.y - 50);
-
-              // Draw stats on the left side if this is the current player
-              if (id === this.socket?.id) {
-                  // Save the current transform
-                  this.ctx.save();
-                  
-                  // Reset transform for UI elements
-                  this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-                  
-                  const statsX = 20;  // Distance from left edge
-                  const statsY = 100; // Distance from top
-                  const barWidth = 200; // Wider bars
-                  const barHeight = 20; // Taller bars
-                  const spacing = 30;  // Space between elements
-
-                  // Draw health bar
-                  this.ctx.fillStyle = 'black';
-                  this.ctx.fillRect(statsX, statsY, barWidth, barHeight);
-                  this.ctx.fillStyle = 'lime';
-                  this.ctx.fillRect(statsX, statsY, barWidth * (player.health / player.maxHealth), barHeight);
-                  
-                  // Draw health text
-                  this.ctx.fillStyle = 'white';
-                  this.ctx.font = '16px Arial';
-                  this.ctx.textAlign = 'left';
-                  this.ctx.fillText(`Health: ${Math.round(player.health)}/${player.maxHealth}`, statsX + 5, statsY + 15);
-
-                  // Draw XP bar
-                  if (player.level < this.MAX_LEVEL) {
-                      this.ctx.fillStyle = '#4169E1';
-                      this.ctx.fillRect(statsX, statsY + spacing, barWidth, barHeight);
-                      this.ctx.fillStyle = '#00FFFF';
-                      this.ctx.fillRect(statsX, statsY + spacing, barWidth * (player.xp / player.xpToNextLevel), barHeight);
-                      
-                      // Draw XP text
-                      this.ctx.fillStyle = 'white';
-                      this.ctx.fillText(`XP: ${player.xp}/${player.xpToNextLevel}`, statsX + 5, statsY + spacing + 15);
-                  }
-
-                  // Draw level
-                  this.ctx.fillStyle = '#FFD700';
-                  this.ctx.font = '20px Arial';
-                  this.ctx.fillText(`Level ${player.level}`, statsX, statsY - 10);
-
-                  // Restore the transform
-                  this.ctx.restore();
-              }
-          });
-
-          // Draw enemies
-          this.enemies.forEach(enemy => {
-              const sizeMultiplier = this.ENEMY_SIZE_MULTIPLIERS[enemy.tier];
-              const enemySize = 40 * sizeMultiplier;  // Base size * multiplier
-              
-              this.ctx.save();
-              this.ctx.translate(enemy.x, enemy.y);
-              this.ctx.rotate(enemy.angle);
-              
-              // Draw hitbox if enabled
-              if (this.showHitboxes) {
-                  this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';  // Semi-transparent red
-                  this.ctx.lineWidth = 2;
-                  
-                  // Draw rectangular hitbox
-                  this.ctx.strokeRect(-enemySize/2, -enemySize/2, enemySize, enemySize);
-                  
-                  // Draw center point
-                  this.ctx.beginPath();
-                  this.ctx.arc(0, 0, 2, 0, Math.PI * 2);
-                  this.ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';  // Yellow dot for center
-                  this.ctx.fill();
-                  
-                  // Draw hitbox dimensions
-                  this.ctx.fillStyle = 'white';
-                  this.ctx.font = '12px Arial';
-                  this.ctx.fillText(`${Math.round(enemySize)}x${Math.round(enemySize)}`, 0, enemySize/2 + 20);
-              }
-
-              // Draw enemy with color based on tier
-              this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
-              this.ctx.beginPath();
-              this.ctx.arc(0, 0, enemySize/2, 0, Math.PI * 2);
-              this.ctx.fill();
-
-              if (enemy.type === 'octopus') {
-                  this.ctx.drawImage(this.octopusSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
-              } else {
-                  this.ctx.drawImage(this.fishSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
-              }
-              
-              this.ctx.restore();
-
-              // Draw health bar and tier indicator - adjust position based on size
-              const maxHealth = this.ENEMY_MAX_HEALTH[enemy.tier];
-              const healthBarWidth = 50 * sizeMultiplier;
-              
-              // Health bar
-              this.ctx.fillStyle = 'black';
-              this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth, 5);
-              this.ctx.fillStyle = 'lime';
-              this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth * (enemy.health / maxHealth), 5);
-              
-              // Tier text
-              this.ctx.fillStyle = 'white';
-              this.ctx.font = (12 * sizeMultiplier) + 'px Arial';
-              this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - healthBarWidth/2, enemy.y + enemySize/2 + 15);
-          });
-
-          // Draw obstacles
-          this.obstacles.forEach(obstacle => {
-              if (obstacle.type === 'coral') {
-                  this.ctx.save();
-                  this.ctx.translate(obstacle.x, obstacle.y);
-                  
-                  if (obstacle.isEnemy) {
-                      // Draw enemy coral with a reddish tint
-                      this.ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                      this.ctx.fillRect(0, 0, obstacle.width, obstacle.height);
-                  }
-                  
-                  this.ctx.drawImage(this.coralSprite, 0, 0, obstacle.width, obstacle.height);
-                  
-                  if (obstacle.isEnemy && obstacle.health !== undefined) {
-                      // Draw health bar for enemy coral
-                      this.ctx.fillStyle = 'red';
-                      this.ctx.fillRect(0, -10, obstacle.width, 5);
-                      this.ctx.fillStyle = 'green';
-                      this.ctx.fillRect(0, -10, obstacle.width * (obstacle.health / this.ENEMY_CORAL_MAX_HEALTH), 5);
-                  }
-                  
-                  this.ctx.restore();
-              }
-          });
-
-          // Draw items
-          this.items.forEach(item => {
-              const sprite = this.itemSprites[item.type];
-              this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
-          });
-
-          // Draw player inventory
-          const playerSocketId = this.socket.id;  // Changed variable name
-          if (playerSocketId) {
-              const player = this.players.get(playerSocketId);
-              if (player) {
-                  player.inventory.forEach((item, index) => {
-                      const sprite = this.itemSprites[item.type];
-                      this.ctx.drawImage(sprite, 10 + index * 40, 10, 30, 30);
-                  });
-              }
+          this.ctx.translate(sand.x, sand.y);
+          
+          // Draw sand blob with opaque color
+          this.ctx.fillStyle = '#FFE4B5';  // Moccasin color, fully opaque
+          this.ctx.beginPath();
+          
+          // Draw static blob shape using the saved rotation
+          this.ctx.moveTo(sand.radius * 0.8, 0);
+          for (let angle = 0; angle <= Math.PI * 2; angle += Math.PI / 8) {
+              // Use the sand's saved rotation for consistent shape
+              const currentAngle = angle + sand.rotation;
+              const randomRadius = sand.radius * 0.9; // Less variation for more consistent shape
+              const x = Math.cos(currentAngle) * randomRadius;
+              const y = Math.sin(currentAngle) * randomRadius;
+              this.ctx.lineTo(x, y);
           }
+          
+          this.ctx.closePath();
+          this.ctx.fill();
+          
+          this.ctx.restore();
+      });
 
+      // Draw decorations (palm trees)
+      this.decorations.forEach(decoration => {
+          this.ctx.save();
+          this.ctx.translate(decoration.x, decoration.y);
+          this.ctx.scale(decoration.scale, decoration.scale);
+          
+          // Draw palm tree
+          this.ctx.drawImage(
+              this.palmSprite,
+              -this.palmSprite.width / 2,
+              -this.palmSprite.height / 2
+          );
+          
+          this.ctx.restore();
+      });
+
+      // Draw players
+      this.players.forEach((player, id) => {
+          this.ctx.save();
+          this.ctx.translate(player.x, player.y);
+          this.ctx.rotate(player.angle);
+          
+          // Apply hue rotation if it's the current player
+          if (id === this.socket?.id) {
+              const offscreen = document.createElement('canvas');
+              offscreen.width = this.playerSprite.width;
+              offscreen.height = this.playerSprite.height;
+              const offCtx = offscreen.getContext('2d')!;
+              
+              offCtx.drawImage(this.playerSprite, 0, 0);
+              const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
+              this.applyHueRotation(offCtx, imageData);
+              offCtx.putImageData(imageData, 0, 0);
+              
+              this.ctx.drawImage(
+                  offscreen,
+                  -this.playerSprite.width / 2,
+                  -this.playerSprite.height / 2
+              );
+          } else {
+              this.ctx.drawImage(
+                  this.playerSprite,
+                  -this.playerSprite.width / 2,
+                  -this.playerSprite.height / 2
+              );
+          }
+          
           this.ctx.restore();
 
-          // Draw minimap (after restoring context)
-          this.drawMinimap();
-      } else {
-          this.renderInventoryMenu();
+          // Draw player name above player
+          this.ctx.fillStyle = 'white';
+          this.ctx.strokeStyle = 'black';
+          this.ctx.lineWidth = 2;
+          this.ctx.font = '16px Arial';
+          this.ctx.textAlign = 'center';
+          const nameText = player.name || 'Anonymous';
+          
+          // Draw text stroke
+          this.ctx.strokeText(nameText, player.x, player.y - 50);
+          // Draw text fill
+          this.ctx.fillText(nameText, player.x, player.y - 50);
+
+          // Draw stats on the left side if this is the current player
+          if (id === this.socket?.id) {
+              // Save the current transform
+              this.ctx.save();
+              
+              // Reset transform for UI elements
+              this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+              
+              const statsX = 20;  // Distance from left edge
+              const statsY = 100; // Distance from top
+              const barWidth = 200; // Wider bars
+              const barHeight = 20; // Taller bars
+              const spacing = 30;  // Space between elements
+
+              // Draw health bar
+              this.ctx.fillStyle = 'black';
+              this.ctx.fillRect(statsX, statsY, barWidth, barHeight);
+              this.ctx.fillStyle = 'lime';
+              this.ctx.fillRect(statsX, statsY, barWidth * (player.health / player.maxHealth), barHeight);
+              
+              // Draw health text
+              this.ctx.fillStyle = 'white';
+              this.ctx.font = '16px Arial';
+              this.ctx.textAlign = 'left';
+              this.ctx.fillText(`Health: ${Math.round(player.health)}/${player.maxHealth}`, statsX + 5, statsY + 15);
+
+              // Draw XP bar
+              if (player.level < this.MAX_LEVEL) {
+                  this.ctx.fillStyle = '#4169E1';
+                  this.ctx.fillRect(statsX, statsY + spacing, barWidth, barHeight);
+                  this.ctx.fillStyle = '#00FFFF';
+                  this.ctx.fillRect(statsX, statsY + spacing, barWidth * (player.xp / player.xpToNextLevel), barHeight);
+                  
+                  // Draw XP text
+                  this.ctx.fillStyle = 'white';
+                  this.ctx.fillText(`XP: ${player.xp}/${player.xpToNextLevel}`, statsX + 5, statsY + spacing + 15);
+              }
+
+              // Draw level
+              this.ctx.fillStyle = '#FFD700';
+              this.ctx.font = '20px Arial';
+              this.ctx.fillText(`Level ${player.level}`, statsX, statsY - 10);
+
+              // Restore the transform
+              this.ctx.restore();
+          }
+      });
+
+      // Draw enemies
+      this.enemies.forEach(enemy => {
+          const sizeMultiplier = this.ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+          const enemySize = 40 * sizeMultiplier;  // Base size * multiplier
+          
+          this.ctx.save();
+          this.ctx.translate(enemy.x, enemy.y);
+          this.ctx.rotate(enemy.angle);
+          
+          // Draw hitbox if enabled
+          if (this.showHitboxes) {
+              this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';  // Semi-transparent red
+              this.ctx.lineWidth = 2;
+              
+              // Draw rectangular hitbox
+              this.ctx.strokeRect(-enemySize/2, -enemySize/2, enemySize, enemySize);
+              
+              // Draw center point
+              this.ctx.beginPath();
+              this.ctx.arc(0, 0, 2, 0, Math.PI * 2);
+              this.ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';  // Yellow dot for center
+              this.ctx.fill();
+              
+              // Draw hitbox dimensions
+              this.ctx.fillStyle = 'white';
+              this.ctx.font = '12px Arial';
+              this.ctx.fillText(`${Math.round(enemySize)}x${Math.round(enemySize)}`, 0, enemySize/2 + 20);
+          }
+
+          // Draw enemy with color based on tier
+          this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
+          this.ctx.beginPath();
+          this.ctx.arc(0, 0, enemySize/2, 0, Math.PI * 2);
+          this.ctx.fill();
+
+          if (enemy.type === 'octopus') {
+              this.ctx.drawImage(this.octopusSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
+          } else {
+              this.ctx.drawImage(this.fishSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
+          }
+          
+          this.ctx.restore();
+
+          // Draw health bar and tier indicator - adjust position based on size
+          const maxHealth = this.ENEMY_MAX_HEALTH[enemy.tier];
+          const healthBarWidth = 50 * sizeMultiplier;
+          
+          // Health bar
+          this.ctx.fillStyle = 'black';
+          this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth, 5);
+          this.ctx.fillStyle = 'lime';
+          this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth * (enemy.health / maxHealth), 5);
+          
+          // Tier text
+          this.ctx.fillStyle = 'white';
+          this.ctx.font = (12 * sizeMultiplier) + 'px Arial';
+          this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - healthBarWidth/2, enemy.y + enemySize/2 + 15);
+      });
+
+      // Draw obstacles
+      this.obstacles.forEach(obstacle => {
+          if (obstacle.type === 'coral') {
+              this.ctx.save();
+              this.ctx.translate(obstacle.x, obstacle.y);
+              
+              if (obstacle.isEnemy) {
+                  // Draw enemy coral with a reddish tint
+                  this.ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                  this.ctx.fillRect(0, 0, obstacle.width, obstacle.height);
+              }
+              
+              this.ctx.drawImage(this.coralSprite, 0, 0, obstacle.width, obstacle.height);
+              
+              if (obstacle.isEnemy && obstacle.health !== undefined) {
+                  // Draw health bar for enemy coral
+                  this.ctx.fillStyle = 'red';
+                  this.ctx.fillRect(0, -10, obstacle.width, 5);
+                  this.ctx.fillStyle = 'green';
+                  this.ctx.fillRect(0, -10, obstacle.width * (obstacle.health / this.ENEMY_CORAL_MAX_HEALTH), 5);
+              }
+              
+              this.ctx.restore();
+          }
+      });
+
+      // Draw items
+      this.items.forEach(item => {
+          const sprite = this.itemSprites[item.type];
+          this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
+      });
+
+      // Draw player inventory
+      const playerSocketId = this.socket.id;  // Changed variable name
+      if (playerSocketId) {
+          const player = this.players.get(playerSocketId);
+          if (player) {
+              player.inventory.forEach((item, index) => {
+                  const sprite = this.itemSprites[item.type];
+                  this.ctx.drawImage(sprite, 10 + index * 40, 10, 30, 30);
+              });
+          }
       }
+
+      this.ctx.restore();
+
+      // Draw minimap (after restoring context)
+      this.drawMinimap();
+
+      // Draw loadout bar
+      this.renderLoadoutBar();
 
       // Draw floating texts
       this.floatingTexts = this.floatingTexts.filter(text => {
@@ -1607,5 +1634,160 @@ export class Game {
       this.applyHueRotation(ctx, imageData);
       ctx.putImageData(imageData, 0, 0);
       ctx.restore();
+  }
+
+  private equipItemToLoadout(inventoryIndex: number, loadoutSlot: number) {
+      const player = this.players.get(this.socket?.id || '');
+      if (!player || loadoutSlot >= this.LOADOUT_SLOTS) return;
+
+      const item = player.inventory[inventoryIndex];
+      if (!item) return;
+
+      // Remove item from inventory
+      player.inventory.splice(inventoryIndex, 1);
+      
+      // If there's an item in the loadout slot, move it to inventory
+      const existingItem = player.loadout[loadoutSlot];
+      if (existingItem) {
+          player.inventory.push(existingItem);
+      }
+
+      // Equip new item to loadout
+      player.loadout[loadoutSlot] = item;
+
+      // Update server
+      this.socket?.emit('updateLoadout', {
+          loadout: player.loadout,
+          inventory: player.inventory
+      });
+  }
+
+  private useLoadoutItem(slot: number) {
+      const player = this.players.get(this.socket?.id || '');
+      if (!player || !player.loadout[slot]) return;
+
+      const item = player.loadout[slot];
+      if (!item) return;
+
+      // Use the item
+      this.socket?.emit('useItem', item.id);
+      
+      // Remove from loadout
+      player.loadout[slot] = null;
+  }
+
+  private renderLoadoutBar() {
+      const player = this.players.get(this.socket?.id || '');
+      if (!player) return;
+
+      const barWidth = 500;  // Increased width for 10 slots
+      const barHeight = 60;
+      const x = (this.canvas.width - barWidth) / 2;
+      const y = this.canvas.height - barHeight - 20;
+
+      // Draw loadout background
+      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      this.ctx.fillRect(x, y, barWidth, barHeight);
+
+      // Draw loadout slots
+      player.loadout.forEach((item, index) => {
+          const slotX = x + (index * (barWidth / this.LOADOUT_SLOTS));
+          const slotY = y;
+          const slotSize = barHeight;
+
+          // Draw slot background
+          this.ctx.fillStyle = 'rgba(50, 50, 50, 0.5)';
+          this.ctx.fillRect(slotX + 5, slotY + 5, slotSize - 10, slotSize - 10);
+
+          // Draw item if exists
+          if (item) {
+              const sprite = this.itemSprites[item.type];
+              this.ctx.drawImage(sprite, slotX + 10, slotY + 10, slotSize - 20, slotSize - 20);
+          }
+
+          // Draw key binding
+          this.ctx.fillStyle = 'white';
+          this.ctx.font = '16px Arial';
+          this.ctx.fillText(this.LOADOUT_KEY_BINDINGS[index], slotX + 5, slotY + 20);
+      });
+  }
+
+  private setupDragAndDrop() {
+      // Make inventory items draggable
+      document.addEventListener('dragstart', (e: Event) => {
+          const dragEvent = e as DragEvent;
+          const target = dragEvent.target as HTMLElement;
+          if (target.classList.contains('inventory-item')) {
+              dragEvent.dataTransfer?.setData('text/plain', target.dataset.index || '');
+          }
+      });
+
+      // Handle drops on loadout slots
+      const slots = document.querySelectorAll('.loadout-slot');
+      slots.forEach(slot => {
+          slot.addEventListener('dragover', (e: Event) => {
+              e.preventDefault();
+              const target = e.target as HTMLElement;
+              target.style.backgroundColor = 'rgba(100, 100, 100, 0.5)';
+          });
+
+          slot.addEventListener('dragleave', (e: Event) => {
+              const target = e.target as HTMLElement;
+              target.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+          });
+
+          slot.addEventListener('drop', (e: Event) => {
+              e.preventDefault();
+              const dragEvent = e as DragEvent;
+              const target = dragEvent.target as HTMLElement;
+              target.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+              
+              const itemIndex = parseInt(dragEvent.dataTransfer?.getData('text/plain') || '-1');
+              const slotIndex = parseInt(target.dataset.slot || '-1');
+              
+              if (itemIndex >= 0 && slotIndex >= 0) {
+                  this.equipItemToLoadout(itemIndex, slotIndex);
+              }
+          });
+      });
+  }
+
+  // Add new method to update inventory display
+  private updateInventoryDisplay() {
+      if (!this.inventoryPanel) return;
+      
+      const player = this.players.get(this.socket?.id || '');
+      if (!player) return;
+
+      const content = this.inventoryPanel.querySelector('.inventory-content');
+      if (!content) return;
+      
+      content.innerHTML = '';
+
+      // Add inventory title
+      const title = document.createElement('h2');
+      title.textContent = 'Inventory';
+      content.appendChild(title);
+
+      // Create inventory grid
+      const grid = document.createElement('div');
+      grid.className = 'inventory-grid';
+
+      // Add inventory items
+      player.inventory.forEach((item, index) => {
+          const itemElement = document.createElement('div');
+          itemElement.className = 'inventory-item';
+          itemElement.draggable = true;
+          itemElement.dataset.index = index.toString();
+
+          const img = document.createElement('img');
+          img.src = `./assets/${item.type}.png`;
+          img.alt = item.type;
+          itemElement.appendChild(img);
+
+          grid.appendChild(itemElement);
+      });
+
+      content.appendChild(grid);
   }
 }

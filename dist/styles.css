@@ -189,3 +189,89 @@ label {
 .color-update-btn:hover {
     background-color: #45a049;
 }
+
+.inventory-item {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    cursor: grab;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.inventory-item:active {
+    cursor: grabbing;
+}
+
+.loadout-slot {
+    transition: background-color 0.2s;
+}
+
+.loadout-slot.drag-over {
+    background-color: rgba(100, 100, 100, 0.5) !important;
+}
+
+.inventory-panel {
+    position: fixed;
+    top: 0;
+    right: -300px; /* Start off-screen */
+    width: 300px;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    transition: transform 0.3s ease-out;
+    z-index: 1000;
+    padding: 20px;
+    box-sizing: border-box;
+    color: white;
+}
+
+.inventory-panel.open {
+    transform: translateX(-300px);
+}
+
+.inventory-content {
+    height: 100%;
+    overflow-y: auto;
+}
+
+.inventory-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    padding: 10px;
+}
+
+.inventory-item {
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    transition: background-color 0.2s;
+}
+
+.inventory-item:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.inventory-item img {
+    width: 80%;
+    height: 80%;
+    object-fit: contain;
+}
+
+.inventory-item:active {
+    cursor: grabbing;
+}
+
+.inventory-panel h2 {
+    margin: 0 0 20px 0;
+    text-align: center;
+    color: white;
+    font-size: 24px;
+}

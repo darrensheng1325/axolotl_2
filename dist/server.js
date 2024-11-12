@@ -99,7 +99,7 @@ const io = new socket_io_1.Server(httpsServer, {
         credentials: true
     }
 });
-const PORT = process.env.PORT || 443;
+const PORT = process.env.PORT || 3000;
 const players = {};
 const dots = [];
 const enemies = [];
@@ -365,7 +365,8 @@ io.on('connection', (socket) => {
                 isInvulnerable: true,
                 level: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1,
                 xp: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.xp) || 0,
-                xpToNextLevel: calculateXPRequirement((savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1)
+                xpToNextLevel: calculateXPRequirement((savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1),
+                loadout: Array(10).fill(null)
             };
             // Save initial state
             savePlayerProgress(players[socket.id], user.id);
@@ -582,6 +583,14 @@ io.on('connection', (socket) => {
         const player = players[socket.id];
         if (player) {
             player.name = newName;
+            io.emit('playerUpdated', player);
+        }
+    });
+    socket.on('updateLoadout', (data) => {
+        const player = players[socket.id];
+        if (player) {
+            player.loadout = data.loadout;
+            player.inventory = data.inventory;
             io.emit('playerUpdated', player);
         }
     });

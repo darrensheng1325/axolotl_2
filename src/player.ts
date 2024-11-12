@@ -15,6 +15,7 @@ export interface Player {
   maxHealth: number;
   damage: number;
   inventory: Item[];
+  loadout: (Item | null)[];
   isInvulnerable?: boolean;
   knockbackX?: number;
   knockbackY?: number;
