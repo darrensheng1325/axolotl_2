@@ -163,7 +163,15 @@ const DROP_CHANCES = {
     legendary: 0.5, // 50% chance
     mythic: 0.75 // 75% chance
 };
-// Update createEnemy to ensure enemies spawn in their correct zones
+// Add these constants near the top with other constants
+const PLAYER_ACCELERATION = 0.2;
+const MAX_SPEED = 4;
+const FRICTION = 0.92;
+// Add these constants near the top with other constants
+const FISH_DETECTION_RADIUS = 500; // How far fish can detect players
+const PLAYER_BASE_SPEED = 5; // Base player speed to match
+const FISH_RETURN_SPEED = 0.5; // Speed at which fish return to normal behavior
+// Add the createEnemy function before it's used
 function createEnemy() {
     // First, decide the x position
     const x = Math.random() * WORLD_WIDTH;
@@ -190,10 +198,6 @@ function createEnemy() {
         knockbackY: 0
     };
 }
-// Add these constants at the top with the others
-const FISH_DETECTION_RADIUS = 500; // How far fish can detect players
-const PLAYER_BASE_SPEED = 5; // Base player speed to match
-const FISH_RETURN_SPEED = 0.5; // Speed at which fish return to their normal behavior
 // Update the moveEnemies function
 function moveEnemies() {
     enemies.forEach(enemy => {
@@ -408,118 +412,163 @@ io.on('connection', (socket) => {
     });
     socket.on('playerMovement', (movementData) => {
         const player = players[socket.id];
-        if (player) {
-            let newX = movementData.x;
-            let newY = movementData.y;
-            // Apply knockback to player position if it exists
-            if (player.knockbackX) {
-                player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-                newX += player.knockbackX;
-                if (Math.abs(player.knockbackX) < 0.1)
-                    player.knockbackX = 0;
-            }
-            if (player.knockbackY) {
-                player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-                newY += player.knockbackY;
-                if (Math.abs(player.knockbackY) < 0.1)
-                    player.knockbackY = 0;
-            }
-            // Check for item collisions
-            const ITEM_PICKUP_RADIUS = 40; // Radius for item pickup
-            for (let i = items.length - 1; i >= 0; i--) {
-                const item = items[i];
-                const dx = newX - item.x;
-                const dy = newY - item.y;
+        if (!player)
+            return;
+        // Calculate velocity based on input
+        if (movementData.input) {
+            const { up, down, left, right, mouseControls, mouseX, mouseY } = movementData.input;
+            if (mouseControls) {
+                // Mouse controls
+                const dx = mouseX - player.x;
+                const dy = mouseY - player.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance < ITEM_PICKUP_RADIUS) {
-                    // Add item to player's inventory without size limit
-                    player.inventory.push(item);
-                    // Remove item from world
-                    items.splice(i, 1);
-                    // Notify clients
-                    socket.emit('inventoryUpdate', player.inventory);
-                    io.emit('itemCollected', {
-                        playerId: socket.id,
-                        itemId: item.id
-                    });
-                    io.emit('itemsUpdate', items);
+                if (distance > 5) { // Dead zone to prevent jittering
+                    player.velocityX += (dx / distance) * PLAYER_ACCELERATION * (player.speed_boost ? 3 : 1);
+                    player.velocityY += (dy / distance) * PLAYER_ACCELERATION * (player.speed_boost ? 3 : 1);
+                    player.angle = Math.atan2(dy, dx);
                 }
             }
-            let collision = false;
-            // Check collision with enemies first
-            for (const enemy of enemies) {
-                const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
-                if (newX < enemy.x + enemySize &&
-                    newX + PLAYER_SIZE > enemy.x &&
-                    newY < enemy.y + enemySize &&
-                    newY + PLAYER_SIZE > enemy.y) {
-                    collision = true;
-                    if (!player.isInvulnerable) {
-                        // Enemy damages player
-                        player.health -= enemy.damage;
-                        player.lastDamageTime = Date.now(); // Add this line
-                        io.emit('playerDamaged', { playerId: player.id, health: player.health });
-                        // Player damages enemy
-                        enemy.health -= player.damage;
-                        io.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
-                        // Calculate knockback direction
-                        const dx = enemy.x - newX;
-                        const dy = enemy.y - newY;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        const normalizedDx = dx / distance;
-                        const normalizedDy = dy / distance;
-                        // Apply knockback to player's position immediately
-                        newX -= normalizedDx * KNOCKBACK_FORCE;
-                        newY -= normalizedDy * KNOCKBACK_FORCE;
-                        // Store knockback for gradual recovery
-                        player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
-                        player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
-                        // Check if enemy dies
-                        if (enemy.health <= 0) {
-                            const index = enemies.findIndex(e => e.id === enemy.id);
-                            if (index !== -1) {
-                                // Award XP before removing the enemy
-                                const xpGained = getXPFromEnemy(enemy);
-                                addXPToPlayer(player, xpGained);
-                                // Check for item drop
-                                const dropChance = DROP_CHANCES[enemy.tier];
-                                if (Math.random() < dropChance) {
-                                    const newItem = {
-                                        id: Math.random().toString(36).substr(2, 9),
-                                        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
-                                        x: enemy.x,
-                                        y: enemy.y
-                                    };
-                                    // Add item to the world instead of player's inventory
-                                    items.push(newItem);
-                                    // Notify all clients about the new item
-                                    io.emit('itemsUpdate', items);
-                                }
-                                enemies.splice(index, 1);
-                                io.emit('enemyDestroyed', enemy.id);
-                                enemies.push(createEnemy());
+            else {
+                // Keyboard controls
+                let dx = 0;
+                let dy = 0;
+                if (up)
+                    dy -= 1;
+                if (down)
+                    dy += 1;
+                if (left)
+                    dx -= 1;
+                if (right)
+                    dx += 1;
+                if (dx !== 0 || dy !== 0) {
+                    player.angle = Math.atan2(dy, dx);
+                    if (dx !== 0 && dy !== 0) {
+                        const length = Math.sqrt(dx * dx + dy * dy);
+                        dx /= length;
+                        dy /= length;
+                    }
+                    player.velocityX += dx * PLAYER_ACCELERATION * (player.speed_boost ? 3 : 1);
+                    player.velocityY += dy * PLAYER_ACCELERATION * (player.speed_boost ? 3 : 1);
+                }
+            }
+        }
+        // Apply friction
+        player.velocityX *= FRICTION;
+        player.velocityY *= FRICTION;
+        // Limit speed
+        const speed = Math.sqrt(Math.pow(player.velocityX, 2) + Math.pow(player.velocityY, 2));
+        if (speed > MAX_SPEED) {
+            const ratio = MAX_SPEED / speed;
+            player.velocityX *= ratio;
+            player.velocityY *= ratio;
+        }
+        // Calculate new position with knockback
+        let newX = player.x + player.velocityX;
+        let newY = player.y + player.velocityY;
+        if (player.knockbackX) {
+            player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+            newX += player.knockbackX;
+            if (Math.abs(player.knockbackX) < 0.1)
+                player.knockbackX = 0;
+        }
+        if (player.knockbackY) {
+            player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+            newY += player.knockbackY;
+            if (Math.abs(player.knockbackY) < 0.1)
+                player.knockbackY = 0;
+        }
+        // Check for item collisions
+        const ITEM_PICKUP_RADIUS = 40; // Radius for item pickup
+        for (let i = items.length - 1; i >= 0; i--) {
+            const item = items[i];
+            const dx = newX - item.x;
+            const dy = newY - item.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < ITEM_PICKUP_RADIUS) {
+                // Add item to player's inventory without size limit
+                player.inventory.push(item);
+                // Remove item from world
+                items.splice(i, 1);
+                // Notify clients
+                socket.emit('inventoryUpdate', player.inventory);
+                io.emit('itemCollected', {
+                    playerId: socket.id,
+                    itemId: item.id
+                });
+                io.emit('itemsUpdate', items);
+            }
+        }
+        let collision = false;
+        // Check collision with enemies first
+        for (const enemy of enemies) {
+            const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+            if (newX < enemy.x + enemySize &&
+                newX + PLAYER_SIZE > enemy.x &&
+                newY < enemy.y + enemySize &&
+                newY + PLAYER_SIZE > enemy.y) {
+                collision = true;
+                if (!player.isInvulnerable) {
+                    // Enemy damages player
+                    player.health -= enemy.damage;
+                    player.lastDamageTime = Date.now(); // Add this line
+                    io.emit('playerDamaged', { playerId: player.id, health: player.health });
+                    // Player damages enemy
+                    enemy.health -= player.damage;
+                    io.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
+                    // Calculate knockback direction
+                    const dx = enemy.x - newX;
+                    const dy = enemy.y - newY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const normalizedDx = dx / distance;
+                    const normalizedDy = dy / distance;
+                    // Apply knockback to player's position immediately
+                    newX -= normalizedDx * KNOCKBACK_FORCE;
+                    newY -= normalizedDy * KNOCKBACK_FORCE;
+                    // Store knockback for gradual recovery
+                    player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
+                    player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+                    // Check if enemy dies
+                    if (enemy.health <= 0) {
+                        const index = enemies.findIndex(e => e.id === enemy.id);
+                        if (index !== -1) {
+                            // Award XP before removing the enemy
+                            const xpGained = getXPFromEnemy(enemy);
+                            addXPToPlayer(player, xpGained);
+                            // Check for item drop
+                            const dropChance = DROP_CHANCES[enemy.tier];
+                            if (Math.random() < dropChance) {
+                                const newItem = {
+                                    id: Math.random().toString(36).substr(2, 9),
+                                    type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
+                                    x: enemy.x,
+                                    y: enemy.y
+                                };
+                                // Add item to the world instead of player's inventory
+                                items.push(newItem);
+                                // Notify all clients about the new item
+                                io.emit('itemsUpdate', items);
                             }
-                        }
-                        // Check if player dies
-                        if (player.health <= 0) {
-                            respawnPlayer(player);
-                            io.emit('playerDied', player.id);
-                            io.emit('playerRespawned', player);
-                            return;
+                            enemies.splice(index, 1);
+                            io.emit('enemyDestroyed', enemy.id);
+                            enemies.push(createEnemy());
                         }
                     }
-                    break;
+                    // Check if player dies
+                    if (player.health <= 0) {
+                        respawnPlayer(player);
+                        io.emit('playerDied', player.id);
+                        io.emit('playerRespawned', player);
+                        return;
+                    }
                 }
+                break;
             }
-            // Update player position even if there was a collision (to apply knockback)
-            player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
-            player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
-            player.angle = movementData.angle;
-            player.velocityX = movementData.velocityX;
-            player.velocityY = movementData.velocityY;
-            // Always emit the updated position
-            io.emit('playerMoved', player);
         }
+        // Update final position
+        player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+        player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+        // Emit updated player state
+        io.emit('playerMoved', player);
     });
     socket.on('collectDot', (dotIndex) => {
         if (dotIndex >= 0 && dotIndex < dots.length) {

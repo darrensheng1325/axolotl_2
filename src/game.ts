@@ -765,91 +765,21 @@ export class Game {
   }
 
   private updatePlayerVelocity() {
-      const player = this.isSinglePlayer ? 
-          this.players.get('player1') : 
-          this.players.get(this.socket?.id || '');
+      if (!this.socket) return;
 
-      if (player) {
-          if (this.useMouseControls) {
-              // Mouse controls
-              const dx = this.mouseX - player.x;
-              const dy = this.mouseY - player.y;
-              const distance = Math.sqrt(dx * dx + dy * dy);
+      // Get current input state
+      const input = {
+          up: this.keysPressed.has('ArrowUp'),
+          down: this.keysPressed.has('ArrowDown'),
+          left: this.keysPressed.has('ArrowLeft'),
+          right: this.keysPressed.has('ArrowRight'),
+          mouseControls: this.useMouseControls,
+          mouseX: this.mouseX,
+          mouseY: this.mouseY
+      };
 
-              if (distance > 5) {  // Add dead zone to prevent jittering
-                  player.velocityX += (dx / distance) * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-                  player.velocityY += (dy / distance) * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-                  player.angle = Math.atan2(dy, dx);
-              } else {
-                  player.velocityX *= this.FRICTION;
-                  player.velocityY *= this.FRICTION;
-              }
-          } else {
-              // Keyboard controls (existing code)
-              let dx = 0;
-              let dy = 0;
-
-              if (this.keysPressed.has('ArrowUp')) dy -= 1;
-              if (this.keysPressed.has('ArrowDown')) dy += 1;
-              if (this.keysPressed.has('ArrowLeft')) dx -= 1;
-              if (this.keysPressed.has('ArrowRight')) dx += 1;
-
-              if (dx !== 0 || dy !== 0) {
-                  player.angle = Math.atan2(dy, dx);
-
-                  if (dx !== 0 && dy !== 0) {
-                      const length = Math.sqrt(dx * dx + dy * dy);
-                      dx /= length;
-                      dy /= length;
-                  }
-
-                  player.velocityX += dx * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-                  player.velocityY += dy * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-              } else {
-                  player.velocityX *= this.FRICTION;
-                  player.velocityY *= this.FRICTION;
-              }
-          }
-
-          // Limit speed
-          const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
-          if (speed > this.MAX_SPEED) {
-              const ratio = this.MAX_SPEED / speed;
-              player.velocityX *= ratio;
-              player.velocityY *= ratio;
-          }
-
-          // Update position
-          const newX = player.x + player.velocityX;
-          const newY = player.y + player.velocityY;
-
-          // Check world bounds
-          player.x = Math.max(0, Math.min(this.WORLD_WIDTH, newX));
-          player.y = Math.max(0, Math.min(this.WORLD_HEIGHT, newY));
-
-          // Send update to server/worker
-          if (this.isSinglePlayer) {
-              this.worker?.postMessage({
-                  type: 'socketEvent',
-                  event: 'playerMovement',
-                  data: {
-                      x: player.x,
-                      y: player.y,
-                      angle: player.angle,
-                      velocityX: player.velocityX,
-                      velocityY: player.velocityY
-                  }
-              });
-          } else {
-              this.socket.emit('playerMovement', {
-                  x: player.x,
-                  y: player.y,
-                  angle: player.angle,
-                  velocityX: player.velocityX,
-                  velocityY: player.velocityY
-              });
-          }
-      }
+      // Send input state to server
+      this.socket.emit('playerMovement', { input });
   }
 
   private updateCamera(player: Player) {
