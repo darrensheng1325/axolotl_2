@@ -366,7 +366,7 @@ io.on('connection', (socket) => {
                 level: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1,
                 xp: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.xp) || 0,
                 xpToNextLevel: calculateXPRequirement((savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1),
-                loadout: Array(10).fill(null)
+                loadout: Array(10).fill(null),
             };
             // Save initial state
             savePlayerProgress(players[socket.id], user.id);
@@ -536,18 +536,24 @@ io.on('connection', (socket) => {
     socket.on('useItem', (itemId) => {
         const player = players[socket.id];
         const itemIndex = player.inventory.findIndex(item => item.id === itemId);
+        console.log('someone used an item:', itemId);
         if (itemIndex !== -1) {
             const item = player.inventory[itemIndex];
             player.inventory.splice(itemIndex, 1);
             switch (item.type) {
                 case 'health_potion':
-                    player.health = Math.min(player.health + 50, PLAYER_MAX_HEALTH);
+                    player.health = PLAYER_MAX_HEALTH;
+                    player.isInvulnerable = false;
+                    player.speed_boost = false;
                     break;
                 case 'speed_boost':
-                    // Implement speed boost logic
+                    player.speed_boost = true;
+                    io.emit('speedBoostActive', player.id);
+                    console.log('Speed boost active:', player.id);
                     break;
                 case 'shield':
-                    // Implement shield logic
+                    player.speed_boost = false;
+                    player.isInvulnerable = true;
                     break;
             }
             socket.emit('inventoryUpdate', player.inventory);

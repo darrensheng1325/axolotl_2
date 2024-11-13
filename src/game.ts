@@ -5,6 +5,8 @@ import { Item } from './item';
 import { workerBlob } from './workerblob';
 
 export class Game {
+  private speedBoostActive: boolean = false;
+  private shieldActive: boolean = false;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private socket!: Socket;  // Using the definite assignment assertion
@@ -676,6 +678,13 @@ export class Game {
               }
           }
       });
+      this.socket.on('speedBoostActive', (playerId: string) => {
+        console.log('Speed boost active:', playerId);
+          if (playerId === this.socket.id) {
+              this.speedBoostActive = true;
+              console.log('Speed boost active for client');
+          }
+      });
   }
 
   private setupEventListeners() {
@@ -768,8 +777,8 @@ export class Game {
               const distance = Math.sqrt(dx * dx + dy * dy);
 
               if (distance > 5) {  // Add dead zone to prevent jittering
-                  player.velocityX += (dx / distance) * this.PLAYER_ACCELERATION;
-                  player.velocityY += (dy / distance) * this.PLAYER_ACCELERATION;
+                  player.velocityX += (dx / distance) * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
+                  player.velocityY += (dy / distance) * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
                   player.angle = Math.atan2(dy, dx);
               } else {
                   player.velocityX *= this.FRICTION;
@@ -794,8 +803,8 @@ export class Game {
                       dy /= length;
                   }
 
-                  player.velocityX += dx * this.PLAYER_ACCELERATION;
-                  player.velocityY += dy * this.PLAYER_ACCELERATION;
+                  player.velocityX += dx * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
+                  player.velocityY += dy * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
               } else {
                   player.velocityX *= this.FRICTION;
                   player.velocityY *= this.FRICTION;
@@ -1735,6 +1744,7 @@ export class Game {
 
       // Use the item
       this.socket?.emit('useItem', item.id);
+      console.log('Used item:', item.id);
       
       // Remove from loadout
       player.loadout[slot] = null;

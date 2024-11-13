@@ -4,6 +4,7 @@ import { Server, Socket } from 'socket.io';
 import path from 'path';
 import fs from 'fs';
 import { database } from './database';
+import { ServerPlayer } from './player';
 
 const app = express();
 
@@ -101,29 +102,6 @@ const io = new Server(httpsServer, {
 
 const PORT = process.env.PORT || 3000;
 
-interface Player {
-  id: string;
-  name: string;
-  x: number;
-  y: number;
-  angle: number;
-  score: number;
-  velocityX: number;
-  velocityY: number;
-  health: number;
-  maxHealth: number;
-  damage: number;
-  inventory: Item[];
-  isInvulnerable?: boolean;
-  knockbackX?: number;
-  knockbackY?: number;
-  level: number;
-  xp: number;
-  xpToNextLevel: number;
-  lastDamageTime?: number;
-  loadout: (Item | null)[];
-}
-
 interface Dot {
   x: number;
   y: number;
@@ -162,7 +140,7 @@ interface Item {
   y: number;
 }
 
-const players: Record<string, Player> = {};
+const players: Record<string, ServerPlayer> = {};
 const dots: Dot[] = [];
 const enemies: Enemy[] = [];
 const obstacles: Obstacle[] = [];
@@ -288,10 +266,10 @@ function moveEnemies() {
         }
 
         // Find nearest player for fish behavior
-        let nearestPlayer: Player | undefined;
+        let nearestPlayer: ServerPlayer | undefined;
         let nearestDistance = Infinity;
         
-        const playerArray: Player[] = Object.values(players);
+        const playerArray: ServerPlayer[] = Object.values(players);
         playerArray.forEach(player => {
             const dx = player.x - enemy.x;
             const dy = player.y - enemy.y;
@@ -396,7 +374,7 @@ for (let i = 0; i < OBSTACLE_COUNT; i++) {
   obstacles.push(createObstacle());
 }
 
-function respawnPlayer(player: Player) {
+function respawnPlayer(player: ServerPlayer) {
     // Determine spawn zone based on player level
     let spawnX;
     if (player.level <= 5) {
@@ -464,7 +442,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 level: savedProgress?.level || 1,
                 xp: savedProgress?.xp || 0,
                 xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1),
-                loadout: Array(10).fill(null)
+                loadout: Array(10).fill(null),
             };
 
             // Save initial state
@@ -660,18 +638,24 @@ io.on('connection', (socket: AuthenticatedSocket) => {
     socket.on('useItem', (itemId: string) => {
         const player = players[socket.id];
         const itemIndex = player.inventory.findIndex(item => item.id === itemId);
+        console.log('someone used an item:', itemId);
         if (itemIndex !== -1) {
             const item = player.inventory[itemIndex];
             player.inventory.splice(itemIndex, 1);
             switch (item.type) {
                 case 'health_potion':
-                    player.health = Math.min(player.health + 50, PLAYER_MAX_HEALTH);
+                    player.health = PLAYER_MAX_HEALTH;
+                    player.isInvulnerable = false;
+                    player.speed_boost = false;
                     break;
                 case 'speed_boost':
-                    // Implement speed boost logic
+                    player.speed_boost = true;
+                    io.emit('speedBoostActive', player.id);
+                    console.log('Speed boost active:', player.id);
                     break;
                 case 'shield':
-                    // Implement shield logic
+                    player.speed_boost = false;
+                    player.isInvulnerable = true;
                     break;
             }
             socket.emit('inventoryUpdate', player.inventory);
@@ -683,7 +667,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
 
 
     // Update the addXPToPlayer function to save progress
-    function addXPToPlayer(player: Player, xp: number): void {
+    function addXPToPlayer(player: ServerPlayer, xp: number): void {
         player.xp += xp;
         while (player.xp >= player.xpToNextLevel) {
             player.xp -= player.xpToNextLevel;
@@ -760,7 +744,7 @@ setInterval(() => {
 }, 24 * 60 * 60 * 1000); // Run once per day
 
 // Add this function near the other helper functions
-function handleLevelUp(player: Player): void {
+function handleLevelUp(player: ServerPlayer): void {
     player.maxHealth += HEALTH_PER_LEVEL;
     player.health = player.maxHealth;  // Heal to full when leveling up
     player.damage += DAMAGE_PER_LEVEL;
@@ -796,7 +780,7 @@ setInterval(() => {
 }, HEALTH_REGEN_INTERVAL);
 
 // Move savePlayerProgress outside the socket connection handler
-function savePlayerProgress(player: Player, userId: string) {
+function savePlayerProgress(player: ServerPlayer, userId: string) {
     if (userId) {
         // Save complete player state including inventory
         database.savePlayer(player.id, userId, {
