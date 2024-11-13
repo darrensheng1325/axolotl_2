@@ -494,21 +494,21 @@ self.onmessage = function(event) {
         case 'socketEvent':
             switch (socketEvent) {
 case 'playerMovement':
-    const player = players[socket.id];
-    if (player) {
+    const currentPlayer = players[socket.id];
+    if (currentPlayer) {
         let newX = data.x;
         let newY = data.y;
 
         // Apply knockback to player position if it exists
-        if (player.knockbackX) {
-            player.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-            newX += player.knockbackX;
-            if (Math.abs(player.knockbackX) < 0.1) player.knockbackX = 0;
+        if (currentPlayer.knockbackX) {
+            currentPlayer.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+            newX += currentPlayer.knockbackX;
+            if (Math.abs(currentPlayer.knockbackX) < 0.1) currentPlayer.knockbackX = 0;
         }
-        if (player.knockbackY) {
-            player.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-            newY += player.knockbackY;
-            if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
+        if (currentPlayer.knockbackY) {
+            currentPlayer.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+            newY += currentPlayer.knockbackY;
+            if (Math.abs(currentPlayer.knockbackY) < 0.1) currentPlayer.knockbackY = 0;
         }
 
         // Check for item collisions
@@ -519,9 +519,9 @@ case 'playerMovement':
             const dy = newY - item.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < ITEM_PICKUP_RADIUS && player.inventory.length < MAX_INVENTORY_SIZE) {
+            if (distance < ITEM_PICKUP_RADIUS && currentPlayer.inventory.length < MAX_INVENTORY_SIZE) {
                 // Add item to player's inventory
-                player.inventory.push(item);
+                currentPlayer.inventory.push(item);
                 
                 // Remove item from world
                 items.splice(i, 1);
@@ -530,7 +530,7 @@ case 'playerMovement':
                 items.push(createItem());
                 
                 // Notify clients
-                socket.emit('inventoryUpdate', player.inventory);
+                socket.emit('inventoryUpdate', currentPlayer.inventory);
                 socket.emit('itemCollected', { 
                     playerId: socket.id, 
                     itemId: item.id 
@@ -556,11 +556,11 @@ case 'playerMovement':
                 console.log(enemy);
                 if (true) {
                     // Enemy damages player
-                    player.health -= enemy.damage;
-                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+                    currentPlayer.health -= enemy.damage;
+                    socket.emit('playerDamaged', { playerId: currentPlayer.id, health: currentPlayer.health });
 
                     // Player damages enemy
-                    enemy.health -= player.damage;  // Use player.damage instead of PLAYER_DAMAGE
+                    enemy.health -= currentPlayer.damage;
                     socket.emit('enemyDamaged', { enemyId: enemy.id, health: enemy.health });
 
                     // Calculate knockback direction
@@ -575,8 +575,8 @@ case 'playerMovement':
                     newY -= normalizedDy * KNOCKBACK_FORCE;
                     
                     // Store knockback for gradual recovery
-                    player.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
-                    player.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
+                    currentPlayer.knockbackX = -normalizedDx * KNOCKBACK_FORCE;
+                    currentPlayer.knockbackY = -normalizedDy * KNOCKBACK_FORCE;
 
                     // Check if enemy dies
                     if (enemy.health <= 0) {
@@ -584,11 +584,11 @@ case 'playerMovement':
                         if (index !== -1) {
                             // Award XP before removing the enemy
                             const xpGained = getXPFromEnemy(enemy);
-                            addXPToPlayer(player, xpGained);
+                            addXPToPlayer(currentPlayer, xpGained);
                             
                             // Check for item drop and add directly to inventory
                             const dropChance = DROP_CHANCES[enemy.tier];
-                            if (Math.random() < dropChance && player.inventory.length < MAX_INVENTORY_SIZE) {
+                            if (Math.random() < dropChance && currentPlayer.inventory.length < MAX_INVENTORY_SIZE) {
                                 // Create item and add directly to player's inventory
                                 const newItem = {
                                     id: Math.random().toString(36).substr(2, 9),
@@ -596,12 +596,12 @@ case 'playerMovement':
                                     x: enemy.x,
                                     y: enemy.y
                                 };
-                                player.inventory.push(newItem);
+                                currentPlayer.inventory.push(newItem);
                                 
                                 // Notify about item pickup
-                                socket.emit('inventoryUpdate', player.inventory);
+                                socket.emit('inventoryUpdate', currentPlayer.inventory);
                                 socket.emit('itemCollected', { 
-                                    playerId: player.id, 
+                                    playerId: currentPlayer.id, 
                                     itemId: newItem.id,
                                     itemType: newItem.type 
                                 });
@@ -615,10 +615,10 @@ case 'playerMovement':
                     }
 
                     // Check if player dies
-                    if (player.health <= 0) {
-                        respawnPlayer(player);
-                        socket.emit('playerDied', player.id);
-                        socket.emit('playerRespawned', player);
+                    if (currentPlayer.health <= 0) {
+                        respawnPlayer(currentPlayer);
+                        socket.emit('playerDied', currentPlayer.id);
+                        socket.emit('playerRespawned', currentPlayer);
                         return;
                     }
                 }
@@ -636,13 +636,13 @@ case 'playerMovement':
             ) {
                 collision = true;
                 if (obstacle.isEnemy) {
-                    player.health -= ENEMY_CORAL_DAMAGE;
-                    socket.emit('playerDamaged', { playerId: player.id, health: player.health });
+                    currentPlayer.health -= ENEMY_CORAL_DAMAGE;
+                    socket.emit('playerDamaged', { playerId: currentPlayer.id, health: currentPlayer.health });
 
-                    if (player.health <= 0) {
-                        respawnPlayer(player);
-                        socket.emit('playerDied', player.id);
-                        socket.emit('playerRespawned', player);
+                    if (currentPlayer.health <= 0) {
+                        respawnPlayer(currentPlayer);
+                        socket.emit('playerDied', currentPlayer.id);
+                        socket.emit('playerRespawned', currentPlayer);
                         return; // Exit early if player dies
                     }
                 }
@@ -651,16 +651,16 @@ case 'playerMovement':
         }
 
         // Update player position even if there was a collision (to apply knockback)
-        player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
-        player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
-        player.angle = data.angle;
-        player.velocityX = data.velocityX;
-        player.velocityY = data.velocityY;
+        currentPlayer.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
+        currentPlayer.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+        currentPlayer.angle = data.angle;
+        currentPlayer.velocityX = data.velocityX;
+        currentPlayer.velocityY = data.velocityY;
 
         // Always emit the updated position
-        socket.emit('playerMoved', player);
-        if (player.health < player.maxHealth) {
-            player.health += 0.1;
+        socket.emit('playerMoved', currentPlayer);
+        if (currentPlayer.health < currentPlayer.maxHealth) {
+            currentPlayer.health += 0.1;
         }
     }
     break;
