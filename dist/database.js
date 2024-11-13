@@ -14,7 +14,7 @@ db.exec(`
 `);
 // Check current schema version
 const currentVersion = db.prepare('SELECT version FROM schema_version').get();
-const LATEST_VERSION = 1;
+const LATEST_VERSION = 2;
 if (!currentVersion) {
     // First time setup
     db.exec(`
@@ -26,6 +26,7 @@ if (!currentVersion) {
             maxHealth INTEGER DEFAULT 100,
             damage INTEGER DEFAULT 10,
             inventory TEXT DEFAULT '[]',
+            loadout TEXT DEFAULT '[]',
             lastSeen DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -46,6 +47,18 @@ else if (currentVersion.version < LATEST_VERSION) {
         db.exec(`
             ALTER TABLE players ADD COLUMN inventory TEXT DEFAULT '[]';
         `);
+    }
+    if (currentVersion.version < 2) {
+        // Add loadout column
+        try {
+            db.exec(`
+                ALTER TABLE players ADD COLUMN loadout TEXT DEFAULT '[]';
+            `);
+            console.log('Successfully added loadout column');
+        }
+        catch (error) {
+            console.error('Error adding loadout column:', error);
+        }
     }
     // Update schema version
     db.prepare('UPDATE schema_version SET version = ?').run(LATEST_VERSION);
@@ -73,13 +86,26 @@ exports.database = {
     },
     // Player-related functions
     savePlayer: (playerId, userId, progress) => {
-        const stmt = db.prepare(`
-            INSERT OR REPLACE INTO players (
-                id, userId, level, xp, maxHealth, damage, inventory, lastSeen
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `);
-        stmt.run(playerId, userId, progress.level, progress.xp, progress.maxHealth, progress.damage, JSON.stringify(progress.inventory || []));
+        try {
+            console.log('Attempting to save player progress:', {
+                playerId,
+                userId,
+                progress
+            });
+            const stmt = db.prepare(`
+                INSERT OR REPLACE INTO players (
+                    id, userId, level, xp, maxHealth, damage, inventory, loadout, lastSeen
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `);
+            const result = stmt.run(playerId, userId, progress.level, progress.xp, progress.maxHealth, progress.damage, JSON.stringify(progress.inventory || []), JSON.stringify(progress.loadout || Array(10).fill(null)));
+            console.log('Save player result:', result);
+            return true;
+        }
+        catch (error) {
+            console.error('Error saving player progress:', error);
+            return false;
+        }
     },
     getPlayer: (playerId) => {
         const stmt = db.prepare('SELECT level, xp, maxHealth, damage, inventory FROM players WHERE id = ?');
@@ -96,18 +122,34 @@ exports.database = {
         return null;
     },
     getPlayerByUserId: (userId) => {
-        const stmt = db.prepare('SELECT level, xp, maxHealth, damage, inventory FROM players WHERE userId = ?');
-        const result = stmt.get(userId);
-        if (result) {
-            return {
-                level: result.level,
-                xp: result.xp,
-                maxHealth: result.maxHealth,
-                damage: result.damage,
-                inventory: JSON.parse(result.inventory || '[]')
-            };
+        try {
+            console.log('Attempting to get player by userId:', userId);
+            const stmt = db.prepare(`
+                SELECT level, xp, maxHealth, damage, inventory, loadout 
+                FROM players 
+                WHERE userId = ?
+                ORDER BY lastSeen DESC
+                LIMIT 1
+            `);
+            const result = stmt.get(userId);
+            if (result) {
+                console.log('Found player data:', result);
+                return {
+                    level: result.level,
+                    xp: result.xp,
+                    maxHealth: result.maxHealth,
+                    damage: result.damage,
+                    inventory: JSON.parse(result.inventory || '[]'),
+                    loadout: JSON.parse(result.loadout || '[]')
+                };
+            }
+            console.log('No player data found for userId:', userId);
+            return null;
         }
-        return null;
+        catch (error) {
+            console.error('Error getting player by userId:', error);
+            return null;
+        }
     },
     cleanupOldPlayers: (daysOld = 30) => {
         const stmt = db.prepare(`

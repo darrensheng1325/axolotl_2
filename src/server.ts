@@ -417,14 +417,13 @@ io.on('connection', (socket: AuthenticatedSocket) => {
         const user = database.getUser(credentials.username, credentials.password);
         
         if (user) {
-            // Store user info in socket
             socket.userId = user.id;
             socket.username = user.username;
             
-            // Load saved progress for the player
+            console.log('User authenticated, loading saved progress for userId:', user.id);
             const savedProgress = database.getPlayerByUserId(user.id);
+            console.log('Loaded saved progress:', savedProgress);
 
-            // Initialize new player with saved or default values
             players[socket.id] = {
                 id: socket.id,
                 name: credentials.playerName || 'Anonymous',
@@ -438,14 +437,15 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 maxHealth: savedProgress?.maxHealth || PLAYER_MAX_HEALTH,
                 damage: savedProgress?.damage || PLAYER_DAMAGE,
                 inventory: savedProgress?.inventory || [],
+                loadout: savedProgress?.loadout || Array(10).fill(null),
                 isInvulnerable: true,
                 level: savedProgress?.level || 1,
                 xp: savedProgress?.xp || 0,
-                xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1),
-                loadout: Array(10).fill(null),
+                xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1)
             };
 
-            // Save initial state
+            // Save initial state and log the result
+            console.log('Saving initial player state');
             savePlayerProgress(players[socket.id], user.id);
 
             // Remove initial invulnerability after the specified time
@@ -782,23 +782,24 @@ setInterval(() => {
 // Move savePlayerProgress outside the socket connection handler
 function savePlayerProgress(player: ServerPlayer, userId: string) {
     if (userId) {
-        // Save complete player state including inventory
-        database.savePlayer(player.id, userId, {
+        console.log('Saving player progress for userId:', userId);
+        
+        const saveResult = database.savePlayer(player.id, userId, {
             level: player.level,
             xp: player.xp,
             maxHealth: player.maxHealth,
             damage: player.damage,
-            inventory: player.inventory  // Add inventory to saved data
+            inventory: player.inventory,
+            loadout: player.loadout
         });
 
-        console.log('Saved player progress:', {
-            userId,
-            level: player.level,
-            xp: player.xp,
-            maxHealth: player.maxHealth,
-            damage: player.damage,
-            inventory: player.inventory
-        });
+        if (saveResult) {
+            console.log('Successfully saved player progress');
+        } else {
+            console.error('Failed to save player progress');
+        }
+    } else {
+        console.warn('Attempted to save player progress without userId');
     }
 }
 

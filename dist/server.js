@@ -343,12 +343,11 @@ io.on('connection', (socket) => {
     socket.on('authenticate', (credentials) => __awaiter(void 0, void 0, void 0, function* () {
         const user = database_1.database.getUser(credentials.username, credentials.password);
         if (user) {
-            // Store user info in socket
             socket.userId = user.id;
             socket.username = user.username;
-            // Load saved progress for the player
+            console.log('User authenticated, loading saved progress for userId:', user.id);
             const savedProgress = database_1.database.getPlayerByUserId(user.id);
-            // Initialize new player with saved or default values
+            console.log('Loaded saved progress:', savedProgress);
             players[socket.id] = {
                 id: socket.id,
                 name: credentials.playerName || 'Anonymous',
@@ -362,13 +361,14 @@ io.on('connection', (socket) => {
                 maxHealth: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.maxHealth) || PLAYER_MAX_HEALTH,
                 damage: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.damage) || PLAYER_DAMAGE,
                 inventory: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.inventory) || [],
+                loadout: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.loadout) || Array(10).fill(null),
                 isInvulnerable: true,
                 level: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1,
                 xp: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.xp) || 0,
-                xpToNextLevel: calculateXPRequirement((savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1),
-                loadout: Array(10).fill(null),
+                xpToNextLevel: calculateXPRequirement((savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1)
             };
-            // Save initial state
+            // Save initial state and log the result
+            console.log('Saving initial player state');
             savePlayerProgress(players[socket.id], user.id);
             // Remove initial invulnerability after the specified time
             setTimeout(() => {
@@ -662,22 +662,24 @@ setInterval(() => {
 // Move savePlayerProgress outside the socket connection handler
 function savePlayerProgress(player, userId) {
     if (userId) {
-        // Save complete player state including inventory
-        database_1.database.savePlayer(player.id, userId, {
+        console.log('Saving player progress for userId:', userId);
+        const saveResult = database_1.database.savePlayer(player.id, userId, {
             level: player.level,
             xp: player.xp,
             maxHealth: player.maxHealth,
             damage: player.damage,
-            inventory: player.inventory // Add inventory to saved data
+            inventory: player.inventory,
+            loadout: player.loadout
         });
-        console.log('Saved player progress:', {
-            userId,
-            level: player.level,
-            xp: player.xp,
-            maxHealth: player.maxHealth,
-            damage: player.damage,
-            inventory: player.inventory
-        });
+        if (saveResult) {
+            console.log('Successfully saved player progress');
+        }
+        else {
+            console.error('Failed to save player progress');
+        }
+    }
+    else {
+        console.warn('Attempted to save player progress without userId');
     }
 }
 // Add periodic saving
