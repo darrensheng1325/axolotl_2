@@ -27,6 +27,10 @@ export const PLAYER_MAX_HEALTH = 100;
 export const ENEMY_MAX_HEALTH = 50;
 export const PLAYER_DAMAGE = 5;
 export const ENEMY_DAMAGE = 20;
+export const DECORATION_COUNT = 100;
+export const SAND_COUNT = 50;  // Reduced from 200 to 50
+export const MIN_SAND_RADIUS = 50;  // Increased from 30 to 50
+export const MAX_SAND_RADIUS = 120; // Increased from 80 to 120
 
 export const ENEMY_TIERS = {
   common: { health: 5, speed: 0.5, damage: 5, probability: 0.4, color: '#808080' },

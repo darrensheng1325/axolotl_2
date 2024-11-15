@@ -19,7 +19,10 @@ const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const database_1 = require("./database");
 const constants_1 = require("./constants");
+const server_utils_1 = require("./server_utils");
 const app = (0, express_1.default)();
+const decorations = [];
+const sands = [];
 // Add body parser middleware for JSON
 app.use(express_1.default.json());
 // Add CORS middleware with specific origin
@@ -239,6 +242,14 @@ for (let i = 0; i < constants_1.ENEMY_COUNT; i++) {
 for (let i = 0; i < constants_1.OBSTACLE_COUNT; i++) {
     constants_1.obstacles.push(createObstacle());
 }
+// Initialize decorations
+for (let i = 0; i < constants_1.DECORATION_COUNT; i++) {
+    decorations.push((0, server_utils_1.createDecoration)());
+}
+// Initialize sands
+for (let i = 0; i < constants_1.SAND_COUNT; i++) {
+    sands.push((0, server_utils_1.createSand)());
+}
 function respawnPlayer(player) {
     // Determine spawn zone based on player level
     let spawnX;
@@ -320,6 +331,8 @@ io.on('connection', (socket) => {
             socket.emit('enemiesUpdate', constants_1.enemies);
             socket.emit('obstaclesUpdate', constants_1.obstacles);
             socket.emit('itemsUpdate', constants_1.items);
+            socket.emit('decorationsUpdate', decorations);
+            socket.emit('sandsUpdate', sands);
             // Notify other players
             socket.broadcast.emit('newPlayer', constants_1.players[socket.id]);
         }

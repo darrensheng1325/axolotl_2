@@ -5,10 +5,12 @@ import path from 'path';
 import fs from 'fs';
 import { database } from './database';
 import { ServerPlayer } from './player';
-import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, ENEMY_COUNT, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH } from './constants';
-import { Enemy, Obstacle, Item } from './server_utils';
+import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, ENEMY_COUNT, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH, SAND_COUNT, DECORATION_COUNT } from './constants';
+import { Enemy, Obstacle, Item, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand } from './server_utils';
 const app = express();
 
+const decorations: Decoration[] = [];
+const sands: Sand[] = [];
 // Add body parser middleware for JSON
 app.use(express.json());
 
@@ -258,6 +260,16 @@ for (let i = 0; i < OBSTACLE_COUNT; i++) {
   obstacles.push(createObstacle());
 }
 
+// Initialize decorations
+for (let i = 0; i < DECORATION_COUNT; i++) {
+  decorations.push(createDecoration());
+}
+
+// Initialize sands
+for (let i = 0; i < SAND_COUNT; i++) {
+  sands.push(createSand());
+}
+
 function respawnPlayer(player: ServerPlayer) {
     // Determine spawn zone based on player level
     let spawnX;
@@ -350,6 +362,8 @@ io.on('connection', (socket: AuthenticatedSocket) => {
             socket.emit('enemiesUpdate', enemies);
             socket.emit('obstaclesUpdate', obstacles);
             socket.emit('itemsUpdate', items);
+            socket.emit('decorationsUpdate', decorations);
+            socket.emit('sandsUpdate', sands);
 
             // Notify other players
             socket.broadcast.emit('newPlayer', players[socket.id]);
