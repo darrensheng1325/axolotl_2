@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { database } from './database';
 import { ServerPlayer } from './player';
-
+import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, ENEMY_COUNT, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH } from './constants';
 const app = express();
 
 // Add body parser middleware for JSON
@@ -107,7 +107,7 @@ interface Dot {
   y: number;
 }
 
-interface Enemy {
+export interface Enemy {
   id: string;
   type: 'octopus' | 'fish';
   tier: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
@@ -140,80 +140,6 @@ interface Item {
   y: number;
 }
 
-const players: Record<string, ServerPlayer> = {};
-const dots: Dot[] = [];
-const enemies: Enemy[] = [];
-const obstacles: Obstacle[] = [];
-const items: Item[] = [];
-
-const WORLD_WIDTH = 10000;
-const WORLD_HEIGHT = 2000;
-const ENEMY_COUNT = 200;
-const OBSTACLE_COUNT = 20;
-const ENEMY_CORAL_PROBABILITY = 0.3;
-const ENEMY_CORAL_HEALTH = 50;
-const ENEMY_CORAL_DAMAGE = 5;
-
-const PLAYER_MAX_HEALTH = 100;
-const ENEMY_MAX_HEALTH = 50;
-const PLAYER_DAMAGE = 5;
-const ENEMY_DAMAGE = 20;
-
-const ENEMY_TIERS = {
-  common: { health: 5, speed: 0.5, damage: 5, probability: 0.4, color: '#808080' },
-  uncommon: { health: 40, speed: 0.75, damage: 10, probability: 0.3, color: '#008000' },
-  rare: { health: 60, speed: 1, damage: 15, probability: 0.15, color: '#0000FF' },
-  epic: { health: 80, speed: 1.25, damage: 20, probability: 0.1, color: '#800080' },
-  legendary: { health: 100, speed: 1.5, damage: 25, probability: 0.04, color: '#FFA500' },
-  mythic: { health: 150, speed: 2, damage: 30, probability: 0.01, color: '#FF0000' }
-};
-
-const MAX_INVENTORY_SIZE = 5;
-
-const RESPAWN_INVULNERABILITY_TIME = 3000; // 3 seconds of invulnerability after respawn
-
-// Add knockback constants at the top with other constants
-const KNOCKBACK_FORCE = 20; // Increased from 20 to 100
-const KNOCKBACK_RECOVERY_SPEED = 0.9; // How quickly the knockback effect diminishes
-
-// Add XP-related constants
-const BASE_XP_REQUIREMENT = 100;
-const XP_MULTIPLIER = 1.5;
-const HEALTH_PER_LEVEL = 10;
-const DAMAGE_PER_LEVEL = 2;
-const PLAYER_SIZE = 40;
-const ENEMY_SIZE = 40;
-
-// Define zone boundaries for different tiers
-const ZONE_BOUNDARIES = {
-    common: { start: 0, end: 2000 },
-    uncommon: { start: 2000, end: 4000 },
-    rare: { start: 4000, end: 6000 },
-    epic: { start: 6000, end: 8000 },
-    legendary: { start: 8000, end: 9000 },
-    mythic: { start: 9000, end: WORLD_WIDTH }
-};
-
-// Add enemy size multipliers like in singleplayer
-const ENEMY_SIZE_MULTIPLIERS = {
-    common: 1.0,
-    uncommon: 1.2,
-    rare: 1.4,
-    epic: 1.6,
-    legendary: 1.8,
-    mythic: 2.0
-};
-
-// Add drop chances like in singleplayer
-const DROP_CHANCES = {
-    common: 1,      // 10% chance
-    uncommon: 0.2,    // 20% chance
-    rare: 0.3,        // 30% chance
-    epic: 0.4,        // 40% chance
-    legendary: 0.5,   // 50% chance
-    mythic: 0.75      // 75% chance
-};
-
 // Update createEnemy to ensure enemies spawn in their correct zones
 function createEnemy(): Enemy {
     // First, decide the x position
@@ -244,11 +170,6 @@ function createEnemy(): Enemy {
         knockbackY: 0
     };
 }
-
-// Add these constants at the top with the others
-const FISH_DETECTION_RADIUS = 500;  // How far fish can detect players
-const PLAYER_BASE_SPEED = 5;  // Base player speed to match
-const FISH_RETURN_SPEED = 0.5;  // Speed at which fish return to their normal behavior
 
 // Update the moveEnemies function
 function moveEnemies() {
