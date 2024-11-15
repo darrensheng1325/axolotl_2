@@ -338,3 +338,18 @@ label {
 .inventory-grid.drag-over {
     background: rgba(255, 255, 255, 0.1);
 }
+
+.save-indicator {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background-color: rgba(76, 175, 80, 0.9);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    font-size: 14px;
+    z-index: 2000;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}

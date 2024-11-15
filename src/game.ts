@@ -118,6 +118,8 @@ export class Game {
   private readonly LOADOUT_KEY_BINDINGS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
   // Add to class properties
   private inventoryPanel: HTMLDivElement | null = null;
+  private saveIndicator: HTMLDivElement | null = null;
+  private saveIndicatorTimeout: NodeJS.Timeout | null = null;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -313,6 +315,13 @@ export class Game {
       this.inventoryPanel.appendChild(inventoryContent);
       
       document.body.appendChild(this.inventoryPanel);
+
+      // Create save indicator
+      this.saveIndicator = document.createElement('div');
+      this.saveIndicator.className = 'save-indicator';
+      this.saveIndicator.textContent = 'Progress Saved';
+      this.saveIndicator.style.display = 'none';
+      document.body.appendChild(this.saveIndicator);
   }
 
   private authenticate() {
@@ -684,6 +693,10 @@ export class Game {
               this.speedBoostActive = true;
               console.log('Speed boost active for client');
           }
+      });
+
+      this.socket.on('savePlayerProgress', () => {
+          this.showSaveIndicator();
       });
   }
 
@@ -1433,6 +1446,13 @@ export class Game {
 
       // Reset canvas state
       this.canvas.style.zIndex = '0';
+
+      // Clean up save indicator
+      if (this.saveIndicatorTimeout) {
+          clearTimeout(this.saveIndicatorTimeout);
+      }
+      this.saveIndicator?.remove();
+      this.saveIndicator = null;
   }
 
   private loadPlayerProgress(): { level: number; xp: number; maxHealth: number; damage: number } {
@@ -2027,5 +2047,30 @@ export class Game {
           inventory: player.inventory,
           loadout: player.loadout
       });
+  }
+
+  private showSaveIndicator() {
+      if (!this.saveIndicator) return;
+
+      // Clear any existing timeout
+      if (this.saveIndicatorTimeout) {
+          clearTimeout(this.saveIndicatorTimeout);
+      }
+
+      // Show the indicator
+      this.saveIndicator.style.display = 'block';
+      this.saveIndicator.style.opacity = '1';
+
+      // Hide after 2 seconds
+      this.saveIndicatorTimeout = setTimeout(() => {
+          if (this.saveIndicator) {
+              this.saveIndicator.style.opacity = '0';
+              setTimeout(() => {
+                  if (this.saveIndicator) {
+                      this.saveIndicator.style.display = 'none';
+                  }
+              }, 300); // Match transition duration
+          }
+      }, 2000);
   }
 }

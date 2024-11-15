@@ -707,6 +707,7 @@ setInterval(() => {
     Object.entries(players).forEach(([socketId, player]) => {
         const socket = io.sockets.sockets.get(socketId) as AuthenticatedSocket;
         if (socket && socket.userId) {
+            socket.emit('savePlayerProgress', player);
             savePlayerProgress(player, socket.userId);
         }
     });

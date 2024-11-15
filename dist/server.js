@@ -635,6 +635,7 @@ setInterval(() => {
     Object.entries(constants_1.players).forEach(([socketId, player]) => {
         const socket = io.sockets.sockets.get(socketId);
         if (socket && socket.userId) {
+            socket.emit('savePlayerProgress', player);
             savePlayerProgress(player, socket.userId);
         }
     });
