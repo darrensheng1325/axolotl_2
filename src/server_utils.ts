@@ -85,7 +85,7 @@ export function createDecoration() {
 
 export function createSand(): Sand {
   // Create sand patches with more spacing
-  const sectionWidth = WORLD_WIDTH / (SAND_COUNT / 2);  // Divide world into sections
+  const sectionWidth = WORLD_WIDTH  // Divide world into sections
   const sectionIndex = sands.length;
   
   return {

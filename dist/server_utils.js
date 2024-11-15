@@ -32,7 +32,7 @@ function createDecoration() {
 }
 function createSand() {
     // Create sand patches with more spacing
-    const sectionWidth = constants_1.WORLD_WIDTH / (constants_1.SAND_COUNT / 2); // Divide world into sections
+    const sectionWidth = constants_1.WORLD_WIDTH; // Divide world into sections
     const sectionIndex = sands.length;
     return {
         x: (sectionIndex * sectionWidth) + Math.random() * sectionWidth, // Spread out along x-axis
