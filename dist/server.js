@@ -640,3 +640,59 @@ setInterval(() => {
         }
     });
 }, SAVE_INTERVAL);
+// Add after other app.use declarations but before socket.io setup
+app.post('/admin/save-progress', (req, res) => {
+    const { playerId } = req.body;
+    if (!playerId) {
+        return res.status(400).json({ message: 'Player ID is required' });
+    }
+    const player = constants_1.players[playerId];
+    const socket = io.sockets.sockets.get(playerId);
+    if (!player || !(socket === null || socket === void 0 ? void 0 : socket.userId)) {
+        return res.status(404).json({ message: 'Player not found or not authenticated' });
+    }
+    try {
+        savePlayerProgress(player, socket.userId);
+        res.json({ message: 'Progress saved successfully' });
+    }
+    catch (error) {
+        console.error('Error saving progress:', error);
+        res.status(500).json({ message: 'Failed to save progress' });
+    }
+});
+// Add console command handler after the httpsServer.listen() call
+process.stdin.on('data', (data) => {
+    const command = data.toString().trim();
+    if (command.startsWith('save')) {
+        const parts = command.split(' ');
+        if (parts.length === 2) {
+            const playerId = parts[1];
+            const player = constants_1.players[playerId];
+            const socket = io.sockets.sockets.get(playerId);
+            if (player && (socket === null || socket === void 0 ? void 0 : socket.userId)) {
+                savePlayerProgress(player, socket.userId);
+                console.log(`Progress saved for player ${playerId}`);
+            }
+            else {
+                console.log(`Player ${playerId} not found or not authenticated`);
+            }
+        }
+        else if (parts.length === 1) {
+            // Save all players
+            let savedCount = 0;
+            Object.entries(constants_1.players).forEach(([socketId, player]) => {
+                const socket = io.sockets.sockets.get(socketId);
+                if (socket === null || socket === void 0 ? void 0 : socket.userId) {
+                    savePlayerProgress(player, socket.userId);
+                    savedCount++;
+                }
+            });
+            console.log(`Saved progress for ${savedCount} players`);
+        }
+    }
+    else if (command === 'list-players') {
+        Object.entries(constants_1.players).forEach(([socketId, player]) => {
+            console.log(`Player ID: ${socketId}, Name: ${player.name}, Level: ${player.level}`);
+        });
+    }
+});
