@@ -5,12 +5,13 @@ import path from 'path';
 import fs from 'fs';
 import { database } from './database';
 import { ServerPlayer } from './player';
-import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, ENEMY_COUNT, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH, SAND_COUNT, DECORATION_COUNT } from './constants';
+import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH, SAND_COUNT, DECORATION_COUNT } from './constants';
 import { Enemy, Obstacle, Item, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand } from './server_utils';
 const app = express();
 
 const decorations: Decoration[] = [];
 const sands: Sand[] = [];
+let ENEMY_COUNT = 200;
 // Add body parser middleware for JSON
 app.use(express.json());
 
@@ -750,6 +751,7 @@ process.stdin.on('data', (data) => {
             
             if (player && socket?.userId) {
                 savePlayerProgress(player, socket.userId);
+                socket.emit('savePlayerProgress', player);
                 console.log(`Progress saved for player ${playerId}`);
             } else {
                 console.log(`Player ${playerId} not found or not authenticated`);
@@ -770,5 +772,12 @@ process.stdin.on('data', (data) => {
         Object.entries(players).forEach(([socketId, player]) => {
             console.log(`Player ID: ${socketId}, Name: ${player.name}, Level: ${player.level}`);
         });
+    } else if (command === 'list-sockets') {
+        io.sockets.sockets.forEach((socket) => {
+            console.log(`Socket ID: ${socket.id}`);
+        });
+    } else if (command.startsWith('set_max_enemies')) {
+        ENEMY_COUNT = parseInt(command.split(' ')[1]);
+        console.log(`Max enemies set to ${ENEMY_COUNT}`);
     }
 });

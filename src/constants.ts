@@ -17,7 +17,7 @@ export const items: Item[] = [];
 
 export const WORLD_WIDTH = 10000;
 export const WORLD_HEIGHT = 2000;
-export const ENEMY_COUNT = 200;
+//export let ENEMY_COUNT = 200;
 export const OBSTACLE_COUNT = 20;
 export const ENEMY_CORAL_PROBABILITY = 0.3;
 export const ENEMY_CORAL_HEALTH = 50;

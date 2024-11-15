@@ -23,6 +23,7 @@ const server_utils_1 = require("./server_utils");
 const app = (0, express_1.default)();
 const decorations = [];
 const sands = [];
+let ENEMY_COUNT = 200;
 // Add body parser middleware for JSON
 app.use(express_1.default.json());
 // Add CORS middleware with specific origin
@@ -235,7 +236,7 @@ function createItem() {
     };
 }
 // Initialize enemies
-for (let i = 0; i < constants_1.ENEMY_COUNT; i++) {
+for (let i = 0; i < ENEMY_COUNT; i++) {
     constants_1.enemies.push(createEnemy());
 }
 // Initialize obstacles
@@ -671,6 +672,7 @@ process.stdin.on('data', (data) => {
             const socket = io.sockets.sockets.get(playerId);
             if (player && (socket === null || socket === void 0 ? void 0 : socket.userId)) {
                 savePlayerProgress(player, socket.userId);
+                socket.emit('savePlayerProgress', player);
                 console.log(`Progress saved for player ${playerId}`);
             }
             else {
@@ -694,5 +696,14 @@ process.stdin.on('data', (data) => {
         Object.entries(constants_1.players).forEach(([socketId, player]) => {
             console.log(`Player ID: ${socketId}, Name: ${player.name}, Level: ${player.level}`);
         });
+    }
+    else if (command === 'list-sockets') {
+        io.sockets.sockets.forEach((socket) => {
+            console.log(`Socket ID: ${socket.id}`);
+        });
+    }
+    else if (command.startsWith('set_max_enemies')) {
+        ENEMY_COUNT = parseInt(command.split(' ')[1]);
+        console.log(`Max enemies set to ${ENEMY_COUNT}`);
     }
 });
