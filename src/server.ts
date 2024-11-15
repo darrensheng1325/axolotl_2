@@ -6,6 +6,7 @@ import fs from 'fs';
 import { database } from './database';
 import { ServerPlayer } from './player';
 import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, ENEMY_COUNT, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH } from './constants';
+import { Enemy, Obstacle, Item } from './server_utils';
 const app = express();
 
 // Add body parser middleware for JSON
@@ -102,44 +103,6 @@ const io = new Server(httpsServer, {
 
 const PORT = process.env.PORT || 3000;
 
-interface Dot {
-  x: number;
-  y: number;
-}
-
-export interface Enemy {
-  id: string;
-  type: 'octopus' | 'fish';
-  tier: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
-  x: number;
-  y: number;
-  angle: number;
-  health: number;
-  speed: number;
-  damage: number;
-  knockbackX?: number;
-  knockbackY?: number;
-  isHostile?: boolean;
-}
-
-interface Obstacle {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  type: 'coral';
-  isEnemy: boolean;
-  health?: number;
-}
-
-interface Item {
-  id: string;
-  type: 'health_potion' | 'speed_boost' | 'shield';
-  x: number;
-  y: number;
-}
-
 // Update createEnemy to ensure enemies spawn in their correct zones
 function createEnemy(): Enemy {
     // First, decide the x position
@@ -220,7 +183,7 @@ function moveEnemies() {
                     const playerSpeed = 16;
                     
                     // Match player speed but consider enemy tier for slight variations
-                    const tierSpeedMultiplier = ENEMY_TIERS[enemy.tier].speed;
+                    const tierSpeedMultiplier = ENEMY_TIERS[enemy.tier as keyof typeof ENEMY_TIERS].speed;
                     const chaseSpeed = playerSpeed * tierSpeedMultiplier;
                     
                     // Move towards player matching their speed
@@ -233,7 +196,7 @@ function moveEnemies() {
                     // Normal fish behavior
                     enemy.isHostile = false;
                     // Return to normal speed gradually
-                    const normalSpeed = ENEMY_TIERS[enemy.tier].speed * 2;
+                    const normalSpeed = ENEMY_TIERS[enemy.tier as keyof typeof ENEMY_TIERS].speed * 2;
                     enemy.x += Math.cos(enemy.angle || 0) * normalSpeed;
                   enemy.y += Math.sin(enemy.angle || 0) * normalSpeed;
                   
@@ -246,7 +209,7 @@ function moveEnemies() {
         }
 
         // Keep enemies in their respective zones
-        const zone = ZONE_BOUNDARIES[enemy.tier];
+        const zone = ZONE_BOUNDARIES[enemy.tier as keyof typeof ZONE_BOUNDARIES];
         if (enemy.x < zone.start || enemy.x >= zone.end) {
             // Reverse direction if exiting zone
             if (enemy.type === 'fish') {
@@ -456,7 +419,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
 
             // Check collision with enemies first
             for (const enemy of enemies) {
-                const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+                const enemySize = ENEMY_SIZE * ENEMY_SIZE_MULTIPLIERS[enemy.tier as keyof typeof ENEMY_SIZE_MULTIPLIERS];
                 
                 if (
                     newX < enemy.x + enemySize &&
@@ -499,7 +462,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                                 addXPToPlayer(player, xpGained);
                                 
                                 // Check for item drop
-                                const dropChance = DROP_CHANCES[enemy.tier];
+                                const dropChance = DROP_CHANCES[enemy.tier as keyof typeof DROP_CHANCES];
                                 if (Math.random() < dropChance) {
                                     const newItem = {
                                         id: Math.random().toString(36).substr(2, 9),

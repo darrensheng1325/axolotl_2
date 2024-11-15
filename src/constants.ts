@@ -1,7 +1,7 @@
 import { ServerPlayer } from "./player";
 import { Dot } from "./enemy";
 import { Obstacle } from "./enemy";
-import { Enemy } from "./server";
+import { Enemy } from "./server_utils";
 import { Item } from "./item";
 
 // Add these constants at the top with the others
