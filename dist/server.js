@@ -445,7 +445,10 @@ io.on('connection', (socket) => {
                                 }
                                 constants_1.enemies.splice(index, 1);
                                 io.emit('enemyDestroyed', enemy.id);
-                                constants_1.enemies.push(createEnemy());
+                                // Only spawn new enemy if below ENEMY_COUNT
+                                if (constants_1.enemies.length < ENEMY_COUNT) {
+                                    constants_1.enemies.push(createEnemy());
+                                }
                             }
                         }
                         // Check if player dies
@@ -703,7 +706,28 @@ process.stdin.on('data', (data) => {
         });
     }
     else if (command.startsWith('set_max_enemies')) {
-        ENEMY_COUNT = parseInt(command.split(' ')[1]);
-        console.log(`Max enemies set to ${ENEMY_COUNT}`);
+        const newCount = parseInt(command.split(' ')[1]);
+        if (!isNaN(newCount) && newCount >= 0) {
+            ENEMY_COUNT = newCount;
+            console.log(`Max enemies set to ${ENEMY_COUNT}`);
+            adjustEnemyCount();
+        }
+        else {
+            console.log('Invalid enemy count. Please provide a valid number.');
+        }
     }
 });
+// Add this function after the command handler
+function adjustEnemyCount() {
+    // Remove excess enemies if current count is higher than ENEMY_COUNT
+    while (constants_1.enemies.length > ENEMY_COUNT) {
+        constants_1.enemies.pop();
+        io.emit('enemyDestroyed', constants_1.enemies[constants_1.enemies.length - 1].id);
+    }
+    // Add new enemies if current count is lower than ENEMY_COUNT
+    while (constants_1.enemies.length < ENEMY_COUNT) {
+        constants_1.enemies.push(createEnemy());
+    }
+    // Update all clients with the new enemy state
+    io.emit('enemiesUpdate', constants_1.enemies);
+}
