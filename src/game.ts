@@ -121,6 +121,11 @@ export class Game {
   private inventoryPanel: HTMLDivElement | null = null;
   private saveIndicator: HTMLDivElement | null = null;
   private saveIndicatorTimeout: NodeJS.Timeout | null = null;
+  // Add to class properties
+  private chatContainer: HTMLDivElement | null = null;
+  private chatInput: HTMLInputElement | null = null;
+  private chatMessages: HTMLDivElement | null = null;
+  private isChatFocused: boolean = false;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -300,6 +305,10 @@ export class Game {
       this.saveIndicator.textContent = 'Progress Saved';
       this.saveIndicator.style.display = 'none';
       document.body.appendChild(this.saveIndicator);
+
+      if (!isSinglePlayer) {
+          this.initializeChat();
+      }
   }
 
   private async initializeSprites(): Promise<void> {
@@ -709,10 +718,32 @@ export class Game {
       this.socket.on('savePlayerProgress', () => {
           this.showSaveIndicator();
       });
+
+      this.socket.on('chatMessage', (message: { sender: string; content: string; timestamp: number }) => {
+          this.addChatMessage(message);
+      });
+
+      this.socket.on('chatHistory', (history: Array<{ sender: string; content: string; timestamp: number }>) => {
+          history.forEach(message => this.addChatMessage(message));
+      });
   }
 
   private setupEventListeners() {
       document.addEventListener('keydown', (event) => {
+          // Skip keyboard controls if chat is focused
+          if (this.isChatFocused) {
+              if (event.key === 'Escape') {
+                  this.chatInput?.blur();
+              }
+              return;
+          }
+          
+          // Add chat toggle
+          if (event.key === 'Enter' && !this.isSinglePlayer) {
+              this.chatInput?.focus();
+              return;
+          }
+          
           if (event.key === 'i' || event.key === 'I') {
               this.toggleInventory();
               return;
@@ -1470,6 +1501,12 @@ export class Game {
       }
       this.saveIndicator?.remove();
       this.saveIndicator = null;
+
+      // Remove chat container
+      this.chatContainer?.remove();
+      this.chatContainer = null;
+      this.chatInput = null;
+      this.chatMessages = null;
   }
 
   private loadPlayerProgress(): { level: number; xp: number; maxHealth: number; damage: number } {
@@ -2108,5 +2145,70 @@ export class Game {
       
       // Otherwise use normal URL
       return `./assets/${filename}`;
+  }
+
+  // Add this method to the Game class
+  private initializeChat() {
+      // Create chat container
+      this.chatContainer = document.createElement('div');
+      this.chatContainer.className = 'chat-container';
+      
+      // Create messages container
+      this.chatMessages = document.createElement('div');
+      this.chatMessages.className = 'chat-messages';
+      
+      // Create input container
+      const inputContainer = document.createElement('div');
+      inputContainer.className = 'chat-input-container';
+      
+      // Create input field
+      this.chatInput = document.createElement('input');
+      this.chatInput.type = 'text';
+      this.chatInput.placeholder = 'Press Enter to chat...';
+      this.chatInput.className = 'chat-input';
+      
+      // Add event listeners
+      this.chatInput.addEventListener('focus', () => {
+          this.isChatFocused = true;
+      });
+      
+      this.chatInput.addEventListener('blur', () => {
+          this.isChatFocused = false;
+      });
+      
+      this.chatInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter' && this.chatInput?.value.trim()) {
+              this.socket.emit('chatMessage', this.chatInput.value.trim());
+              this.chatInput.value = '';
+          }
+      });
+      
+      // Assemble chat UI
+      inputContainer.appendChild(this.chatInput);
+      this.chatContainer.appendChild(this.chatMessages);
+      this.chatContainer.appendChild(inputContainer);
+      document.body.appendChild(this.chatContainer);
+      
+      // Request chat history
+      this.socket.emit('requestChatHistory');
+  }
+
+  // Add this method to handle adding messages
+  private addChatMessage(message: { sender: string; content: string; timestamp: number }) {
+      if (!this.chatMessages) return;
+      
+      const messageElement = document.createElement('div');
+      messageElement.className = 'chat-message';
+      
+      const time = new Date(message.timestamp).toLocaleTimeString();
+      messageElement.innerHTML = `<span class="chat-time">[${time}]</span> <span class="chat-sender">${message.sender}:</span> ${message.content}`;
+      
+      this.chatMessages.appendChild(messageElement);
+      this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+      
+      // Remove old messages if too many
+      while (this.chatMessages.children.length > 100) {
+          this.chatMessages.removeChild(this.chatMessages.firstChild!);
+      }
   }
 }

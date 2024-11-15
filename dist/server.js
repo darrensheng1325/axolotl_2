@@ -551,6 +551,30 @@ io.on('connection', (socket) => {
             io.emit('playerUpdated', player);
         }
     });
+    // Add to class-level variables after other declarations
+    const chatHistory = [];
+    const MAX_CHAT_HISTORY = 100; // Keep last 100 messages
+    // Add this inside the socket.io connection handler (after other socket handlers)
+    socket.on('chatMessage', (message) => {
+        if (!socket.username)
+            return; // Ensure user is authenticated
+        const chatMessage = {
+            sender: socket.username,
+            content: message,
+            timestamp: Date.now()
+        };
+        // Add to history and trim if needed
+        chatHistory.push(chatMessage);
+        if (chatHistory.length > MAX_CHAT_HISTORY) {
+            chatHistory.shift();
+        }
+        // Broadcast to all connected clients
+        io.emit('chatMessage', chatMessage);
+    });
+    // Add this after socket handlers but before socket.on('authenticate'...)
+    socket.on('requestChatHistory', () => {
+        socket.emit('chatHistory', chatHistory);
+    });
 });
 // Move enemies every 100ms
 setInterval(() => {
