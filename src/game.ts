@@ -3,6 +3,7 @@ import { Dot, Enemy, Obstacle } from './enemy';
 import { io, Socket } from 'socket.io-client';
 import { Item } from './item';
 import { workerBlob } from './workerblob';
+import { IMAGE_ASSETS } from './imageAssets';
 
 export class Game {
   private speedBoostActive: boolean = false;
@@ -11,7 +12,7 @@ export class Game {
   private ctx: CanvasRenderingContext2D;
   private socket!: Socket;  // Using the definite assignment assertion
   private players: Map<string, Player> = new Map();
-  private playerSprite: HTMLImageElement;
+  private playerSprite: HTMLImageElement = new Image();
   private dots: Dot[] = [];
   private readonly DOT_SIZE = 5;
   private readonly DOT_COUNT = 20;
@@ -25,8 +26,10 @@ export class Game {
   private readonly WORLD_HEIGHT = 2000;  // Keep height the same
   private keysPressed: Set<string> = new Set();
   private enemies: Map<string, Enemy> = new Map();
-  private octopusSprite: HTMLImageElement;
-  private fishSprite: HTMLImageElement;
+  private octopusSprite: HTMLImageElement = new Image();
+  private fishSprite: HTMLImageElement = new Image();
+  private coralSprite: HTMLImageElement = new Image();
+  private palmSprite: HTMLImageElement = new Image();
   private readonly PLAYER_MAX_HEALTH = 100;
   private readonly ENEMY_MAX_HEALTH: Record<Enemy['tier'], number> = {
       common: 20,
@@ -49,7 +52,6 @@ export class Game {
       mythic: '#FF0000'
   };
   private obstacles: Obstacle[] = [];
-  private coralSprite: HTMLImageElement;
   private readonly ENEMY_CORAL_MAX_HEALTH = 50;
   private items: Item[] = [];
   private itemSprites: Record<string, HTMLImageElement> = {};
@@ -89,7 +91,6 @@ export class Game {
   private readonly MINIMAP_HEIGHT = 40;
   private readonly MINIMAP_PADDING = 10;
   // Add decoration-related properties
-  private palmSprite: HTMLImageElement;
   private decorations: Array<{
       x: number;
       y: number;
@@ -134,10 +135,13 @@ export class Game {
       
       this.isSinglePlayer = isSinglePlayer;
 
-      // Initialize sprites and other resources with relative paths
-      this.playerSprite = new Image();
-      this.playerSprite.src = './assets/player.png';
-      
+      // Initialize sprites with CORS settings and wait for them to load
+      this.initializeSprites().then(() => {
+          console.log('All sprites loaded successfully');
+          this.updateColorPreview();
+          this.gameLoop();
+      }).catch(console.error);
+
       // Create and set up preview canvas
       this.colorPreviewCanvas = document.createElement('canvas');
       this.colorPreviewCanvas.width = 64;  // Set fixed size for preview
@@ -204,33 +208,7 @@ export class Game {
           }
       }
 
-      // Wait for sprite to load before initializing
-      this.playerSprite.onload = () => {
-          console.log('Player sprite loaded successfully');
-          this.updateColorPreview();
-          this.gameLoop();
-      };
-      
-      this.playerSprite.onerror = (e) => {
-          console.error('Error loading player sprite:', e);
-      };
-
-      this.octopusSprite = new Image();
-      this.octopusSprite.src = './assets/octopus.png';
-      this.fishSprite = new Image();
-      this.fishSprite.src = './assets/fish.png';
-      this.coralSprite = new Image();
-      this.coralSprite.src = './assets/coral.png';
-
-      // Load palm sprite
-      this.palmSprite = new Image();
-      this.palmSprite.src = './assets/palm.png';
-      this.palmSprite.onerror = (e) => {
-          console.error('Error loading palm sprite:', e);
-      };
-
       this.setupEventListeners();
-      this.setupItemSprites();
 
       // Get title screen elements
       this.titleScreen = document.querySelector('.center_text');
@@ -323,6 +301,39 @@ export class Game {
       this.saveIndicator.style.display = 'none';
       document.body.appendChild(this.saveIndicator);
   }
+
+  private async initializeSprites(): Promise<void> {
+    const loadSprite = async (sprite: HTMLImageElement, filename: string): Promise<void> => {
+        try {
+            sprite.crossOrigin = "anonymous";
+            sprite.src = await this.getAssetUrl(filename);
+            
+            return new Promise((resolve, reject) => {
+                sprite.onload = () => resolve();
+                sprite.onerror = (e) => {
+                    console.error(`Failed to load sprite: ${filename}`, e);
+                    reject(e);
+                };
+            });
+        } catch (error) {
+            console.error(`Error loading sprite ${filename}:`, error);
+            // Don't throw error, just log it and continue
+        }
+    };
+
+    try {
+        await Promise.allSettled([
+            loadSprite(this.playerSprite, 'player.png'),
+            loadSprite(this.octopusSprite, 'octopus.png'),
+            loadSprite(this.fishSprite, 'fish.png'),
+            loadSprite(this.coralSprite, 'coral.png'),
+            loadSprite(this.palmSprite, 'palm.png')
+        ]);
+    } catch (error) {
+        console.error('Error loading sprites:', error);
+        // Continue even if some sprites fail to load
+    }
+}
 
   private authenticate() {
       // Get credentials from AuthUI or localStorage
@@ -1358,24 +1369,30 @@ export class Game {
       this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
   }
 
-  private setupItemSprites() {
+  private async setupItemSprites() {
       this.itemSprites = {};
       const itemTypes = ['health_potion', 'speed_boost', 'shield'];
       
-      itemTypes.forEach(type => {
+      await Promise.all(itemTypes.map(async type => {
           const sprite = new Image();
-          sprite.src = `./assets/${type}.png`;
-          sprite.onload = () => {
+          sprite.crossOrigin = "anonymous";
+          
+          try {
+              const url = await this.getAssetUrl(`${type}.png`);
+              await new Promise<void>((resolve, reject) => {
+                  sprite.onload = () => resolve();
+                  sprite.onerror = reject;
+                  sprite.src = url;
+              });
+              
               console.log(`Loaded sprite for ${type}`);
-              // Update displays when sprites are loaded
+              this.itemSprites[type] = sprite;
               this.updateInventoryDisplay();
               this.updateLoadoutDisplay();
-          };
-          sprite.onerror = (e) => {
-              console.error(`Error loading sprite for ${type}:`, e);
-          };
-          this.itemSprites[type] = sprite;
-      });
+          } catch (error) {
+              console.error(`Error loading sprite for ${type}:`, error);
+          }
+      }));
   }
 
   private resizeCanvas() {
@@ -2072,5 +2089,24 @@ export class Game {
               }, 300); // Match transition duration
           }
       }, 2000);
+  }
+
+  // Add this helper method to handle asset URLs
+  private async getAssetUrl(filename: string): Promise<string> {
+      // Remove the file extension to get the asset key
+      const assetKey = filename.replace('.png', '');
+      
+      // If running from file:// protocol, use base64 data
+      if (window.location.protocol === 'file:') {
+          // Get the base64 data from our assets
+          const base64Data = IMAGE_ASSETS[assetKey as keyof typeof IMAGE_ASSETS];
+          if (base64Data) {
+              return base64Data;
+          }
+          console.error(`No base64 data found for asset: ${filename}`);
+      }
+      
+      // Otherwise use normal URL
+      return `./assets/${filename}`;
   }
 }

@@ -369,88 +369,152 @@ const mockIo = {
 
 const socket = new MockSocket();
 
-// Initialize game state
-function initializeGame(messageData?: { savedProgress?: any }) {
-    console.log('Initializing game state in worker', messageData);
-    
-    const savedProgress = messageData?.savedProgress || {
-        level: 1,
-        xp: 0,
-        maxHealth: PLAYER_MAX_HEALTH,
-        damage: PLAYER_DAMAGE
-    };
+// Update the getImageAsDataURL function
+async function getImageAsDataURL(imagePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                try {
+                    const dataUrl = canvas.toDataURL();
+                    resolve(dataUrl);
+                } catch (error) {
+                    console.error('Error converting to data URL:', error);
+                    resolve(imagePath); // Fallback to original path
+                }
+            } else {
+                reject(new Error('Could not get canvas context'));
+            }
+        };
+        
+        img.onerror = () => {
+            console.error('Failed to load image:', imagePath);
+            resolve(imagePath); // Fallback to original path
+        };
 
-    console.log('Using saved progress:', savedProgress);
-    
-    // Initialize player at the left side of the map
-    players[socket.id] = {
-        id: socket.id,
-        x: 200,  // Start near the left edge
-        y: WORLD_HEIGHT / 2,
-        angle: 0,
-        score: 0,
-        velocityX: 0,
-        velocityY: 0,
-        health: savedProgress.maxHealth,
-        maxHealth: savedProgress.maxHealth,
-        damage: savedProgress.damage,
-        inventory: [],
-        isInvulnerable: true,
-        level: savedProgress.level,
-        xp: savedProgress.xp,
-        xpToNextLevel: calculateXPRequirement(savedProgress.level)
-    };
+        // Try to load image with timestamp to bypass cache
+        const timestamp = new Date().getTime();
+        img.src = `${imagePath}?t=${timestamp}`;
+    });
+}
 
-    // Remove initial invulnerability after the specified time
-    setTimeout(() => {
-        if (players[socket.id]) {
-            players[socket.id].isInvulnerable = false;
+// Update initializeGame to handle image loading errors gracefully
+async function initializeGame(messageData?: { savedProgress?: any }) {
+    try {
+        // Load all images first
+        const imageUrls = await Promise.all([
+            getImageAsDataURL('./assets/player.png'),
+            getImageAsDataURL('./assets/background.png'),
+            // Add other image URLs here
+        ]);
+
+        // Continue with game initialization using the loaded image URLs
+        const [playerSpriteURL, backgroundURL] = imageUrls;
+
+        const playerSprite = new Image();
+        playerSprite.src = playerSpriteURL;
+
+        const backgroundImage = new Image();
+        backgroundImage.src = backgroundURL;
+
+        console.log('Initializing game state in worker', messageData);
+        
+        const savedProgress = messageData?.savedProgress || {
+            level: 1,
+            xp: 0,
+            maxHealth: PLAYER_MAX_HEALTH,
+            damage: PLAYER_DAMAGE
+        };
+
+        console.log('Using saved progress:', savedProgress);
+        
+        // Initialize player at the left side of the map
+        players[socket.id] = {
+            id: socket.id,
+            x: 200,  // Start near the left edge
+            y: WORLD_HEIGHT / 2,
+            angle: 0,
+            score: 0,
+            velocityX: 0,
+            velocityY: 0,
+            health: savedProgress.maxHealth,
+            maxHealth: savedProgress.maxHealth,
+            damage: savedProgress.damage,
+            inventory: [],
+            isInvulnerable: true,
+            level: savedProgress.level,
+            xp: savedProgress.xp,
+            xpToNextLevel: calculateXPRequirement(savedProgress.level)
+        };
+
+        // Remove initial invulnerability after the specified time
+        setTimeout(() => {
+            if (players[socket.id]) {
+                players[socket.id].isInvulnerable = false;
+            }
+        }, RESPAWN_INVULNERABILITY_TIME);
+
+        // Create enemies
+        for (let i = 0; i < ENEMY_COUNT; i++) {
+            enemies.push(createEnemy());
         }
-    }, RESPAWN_INVULNERABILITY_TIME);
 
-    // Create enemies
-    for (let i = 0; i < ENEMY_COUNT; i++) {
-        enemies.push(createEnemy());
+        // Create obstacles
+        for (let i = 0; i < 20; i++) {
+            obstacles.push(createObstacle());
+        }
+
+        // Create items
+        for (let i = 0; i < ITEM_COUNT; i++) {
+            items.push(createItem());
+        }
+
+        // Create dots
+        for (let i = 0; i < 20; i++) {
+            dots.push({
+                x: Math.random() * WORLD_WIDTH,
+                y: Math.random() * WORLD_HEIGHT
+            });
+        }
+
+        // Create decorations
+        for (let i = 0; i < DECORATION_COUNT; i++) {
+            decorations.push(createDecoration());
+        }
+
+        // Create sand blobs
+        for (let i = 0; i < SAND_COUNT; i++) {
+            sands.push(createSand());
+        }
+
+        console.log('Sending initial game state');
+        
+        // Send all initial state in the correct order
+        socket.emit('currentPlayers', players);
+        socket.emit('enemiesUpdate', enemies);
+        socket.emit('obstaclesUpdate', obstacles);
+        socket.emit('itemsUpdate', items);
+        socket.emit('playerMoved', players[socket.id]); // Ensure player position is set
+        socket.emit('decorationsUpdate', decorations);
+        socket.emit('sandsUpdate', sands);
+    } catch (error) {
+        console.error('Failed to initialize game:', error);
+        // Continue with initialization even if image loading fails
+        initializeGameState(messageData);
     }
+}
 
-    // Create obstacles
-    for (let i = 0; i < 20; i++) {
-        obstacles.push(createObstacle());
-    }
-
-    // Create items
-    for (let i = 0; i < ITEM_COUNT; i++) {
-        items.push(createItem());
-    }
-
-    // Create dots
-    for (let i = 0; i < 20; i++) {
-        dots.push({
-            x: Math.random() * WORLD_WIDTH,
-            y: Math.random() * WORLD_HEIGHT
-        });
-    }
-
-    // Create decorations
-    for (let i = 0; i < DECORATION_COUNT; i++) {
-        decorations.push(createDecoration());
-    }
-
-    // Create sand blobs
-    for (let i = 0; i < SAND_COUNT; i++) {
-        sands.push(createSand());
-    }
-
-    console.log('Sending initial game state');
-    
-    // Send all initial state in the correct order
-    socket.emit('currentPlayers', players);
-    socket.emit('enemiesUpdate', enemies);
-    socket.emit('obstaclesUpdate', obstacles);
-    socket.emit('itemsUpdate', items);
-    socket.emit('playerMoved', players[socket.id]); // Ensure player position is set
-    socket.emit('decorationsUpdate', decorations);
-    socket.emit('sandsUpdate', sands);
+// Separate game state initialization
+function initializeGameState(messageData?: { savedProgress?: any }) {
+    // Move the non-image related initialization here
+    // ... rest of the initialization code ...
 }
 
 // Handle messages from main thread

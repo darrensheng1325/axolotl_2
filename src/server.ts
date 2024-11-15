@@ -807,3 +807,18 @@ function adjustEnemyCount() {
     // Update all clients with the new enemy state
     io.emit('enemiesUpdate', enemies);
 }
+
+// Add after other app.use declarations
+app.use('/assets', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+});
+
+// If you're serving assets from a specific directory, update the static file serving
+app.use('/assets', express.static(path.join(__dirname, '../assets'), {
+    setHeaders: (res, path, stat) => {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+}));
