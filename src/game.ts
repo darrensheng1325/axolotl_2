@@ -2149,7 +2149,7 @@ export class Game {
       this.updateLoadoutDisplay();
   }
 
-  // Update the updateInventoryDisplay method to properly set up drag events
+  // Update the updateInventoryDisplay method
   private updateInventoryDisplay() {
       if (!this.inventoryPanel) return;
       
@@ -2166,117 +2166,132 @@ export class Game {
       title.textContent = 'Inventory';
       content.appendChild(title);
 
-      // Create inventory grid
-      const grid = document.createElement('div');
-      grid.className = 'inventory-grid';
+      // Group items by rarity
+      const itemsByRarity: Record<string, Item[]> = {
+          mythic: [],
+          legendary: [],
+          epic: [],
+          rare: [],
+          uncommon: [],
+          common: []
+      };
 
-      // Stack similar items
-      const stackedItems = new Map<string, { item: Item; count: number }>();
+      // Sort items into rarity groups
       player.inventory.forEach(item => {
-          const key = item.type;
-          const stack = stackedItems.get(key);
-          if (stack) {
-              stack.count++;
-          } else {
-              stackedItems.set(key, { item, count: 1 });
-          }
+          const rarity = item.rarity || 'common';
+          itemsByRarity[rarity].push(item);
       });
 
-      // Add stacked inventory items
-      stackedItems.forEach(({ item, count }, type) => {
-          const itemElement = document.createElement('div');
-          itemElement.className = 'inventory-item';
-          itemElement.draggable = true;
+      // Create inventory grid container
+      const gridContainer = document.createElement('div');
+      gridContainer.className = 'inventory-grid-container';
+      gridContainer.style.cssText = `
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 10px;
+      `;
 
-          // Add rarity background
-          const rarityColor = this.ITEM_RARITY_COLORS[item.rarity || 'common'];
-          itemElement.style.cssText = `
-              position: relative;
-              width: 90px;
-              height: 90px;
-              background-color: ${rarityColor}20;
-              border: 2px solid ${rarityColor};
-              border-radius: 5px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              cursor: pointer;
-              transition: all 0.2s ease;
-          `;
-
-          // Add hover effect
-          itemElement.addEventListener('mouseover', () => {
-              itemElement.style.transform = 'scale(1.05)';
-              itemElement.style.boxShadow = `0 0 10px ${rarityColor}`;
-          });
-
-          itemElement.addEventListener('mouseout', () => {
-              itemElement.style.transform = 'scale(1)';
-              itemElement.style.boxShadow = 'none';
-          });
-
-          // Add drag start event listener
-          itemElement.addEventListener('dragstart', (e: Event) => {
-              const dragEvent = e as DragEvent;
-              const index = player.inventory.findIndex(i => i.type === type);
-              dragEvent.dataTransfer?.setData('text/plain', index.toString());
-              dragEvent.dataTransfer!.effectAllowed = 'move';
-              itemElement.classList.add('dragging');
-          });
-
-          itemElement.addEventListener('dragend', () => {
-              itemElement.classList.remove('dragging');
-          });
-
-          const img = document.createElement('img');
-          img.src = `./assets/${item.type}.png`;
-          img.alt = item.type;
-          img.draggable = false;
-          img.style.cssText = `
-              width: 60px;
-              height: 60px;
-              object-fit: contain;
-          `;
-
-          // Add rarity text
-          const rarityText = document.createElement('div');
-          rarityText.className = 'item-rarity';
-          rarityText.textContent = item.rarity?.toUpperCase() || 'COMMON';
-          rarityText.style.cssText = `
-              position: absolute;
-              top: 2px;
-              left: 2px;
-              font-size: 10px;
-              color: ${rarityColor};
-              text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
-              pointer-events: none;
-          `;
-
-          // Add count badge if more than 1
-          if (count > 1) {
-              const countBadge = document.createElement('div');
-              countBadge.className = 'item-count';
-              countBadge.textContent = count.toString();
-              countBadge.style.cssText = `
-                  position: absolute;
-                  bottom: 2px;
-                  right: 2px;
-                  background: rgba(0, 0, 0, 0.7);
-                  color: white;
-                  padding: 2px 4px;
-                  border-radius: 10px;
-                  font-size: 12px;
-                  pointer-events: none;
+      // Create rows for each rarity that has items
+      Object.entries(itemsByRarity).forEach(([rarity, items]) => {
+          if (items.length > 0) {
+              // Create rarity row container
+              const rarityRow = document.createElement('div');
+              rarityRow.className = 'rarity-row';
+              rarityRow.style.cssText = `
+                  display: flex;
+                  flex-direction: column;
+                  gap: 5px;
               `;
-              itemElement.appendChild(countBadge);
-          }
 
-          itemElement.appendChild(rarityText);
-          itemElement.appendChild(img);
-          grid.appendChild(itemElement);
+              // Add rarity label
+              const rarityLabel = document.createElement('div');
+              rarityLabel.textContent = rarity.toUpperCase();
+              rarityLabel.style.cssText = `
+                  color: ${this.ITEM_RARITY_COLORS[rarity]};
+                  font-weight: bold;
+                  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+                  padding-left: 5px;
+              `;
+              rarityRow.appendChild(rarityLabel);
+
+              // Create grid for this rarity's items
+              const grid = document.createElement('div');
+              grid.className = 'inventory-grid';
+              grid.style.cssText = `
+                  display: flex;
+                  flex-wrap: wrap;
+                  gap: 5px;
+                  padding: 5px;
+                  background: rgba(0, 0, 0, 0.2);
+                  border-radius: 5px;
+                  border: 1px solid ${this.ITEM_RARITY_COLORS[rarity]}40;
+              `;
+
+              // Add items to grid
+              items.forEach(item => {
+                  const itemElement = document.createElement('div');
+                  itemElement.className = 'inventory-item';
+                  itemElement.draggable = true;
+
+                  // Style for item slot
+                  itemElement.style.cssText = `
+                      position: relative;
+                      width: 50px;
+                      height: 50px;
+                      background-color: ${this.ITEM_RARITY_COLORS[rarity]}20;
+                      border: 2px solid ${this.ITEM_RARITY_COLORS[rarity]};
+                      border-radius: 5px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      cursor: pointer;
+                      transition: all 0.2s ease;
+                  `;
+
+                  // Add hover effect
+                  itemElement.addEventListener('mouseover', () => {
+                      itemElement.style.transform = 'scale(1.05)';
+                      itemElement.style.boxShadow = `0 0 10px ${this.ITEM_RARITY_COLORS[rarity]}`;
+                  });
+
+                  itemElement.addEventListener('mouseout', () => {
+                      itemElement.style.transform = 'scale(1)';
+                      itemElement.style.boxShadow = 'none';
+                  });
+
+                  // Add drag functionality
+                  itemElement.addEventListener('dragstart', (e) => {
+                      const index = player.inventory.findIndex(i => i.id === item.id);
+                      e.dataTransfer?.setData('text/plain', index.toString());
+                      itemElement.classList.add('dragging');
+                  });
+
+                  itemElement.addEventListener('dragend', () => {
+                      itemElement.classList.remove('dragging');
+                  });
+
+                  // Add item image
+                  const img = document.createElement('img');
+                  img.src = `./assets/${item.type}.png`;
+                  img.alt = item.type;
+                  img.draggable = false;
+                  img.style.cssText = `
+                      width: 40px;
+                      height: 40px;
+                      object-fit: contain;
+                  `;
+
+                  itemElement.appendChild(img);
+                  grid.appendChild(itemElement);
+              });
+
+              rarityRow.appendChild(grid);
+              gridContainer.appendChild(rarityRow);
+          }
       });
 
-      content.appendChild(grid);
+      content.appendChild(gridContainer);
   }
 
   // Add this method to the Game class

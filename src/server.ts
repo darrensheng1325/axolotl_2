@@ -322,13 +322,21 @@ function respawnPlayer(player: ServerPlayer) {
         spawnX = ZONE_BOUNDARIES.mythic.start + Math.random() * (ZONE_BOUNDARIES.mythic.end - ZONE_BOUNDARIES.mythic.start);
     }
 
+    // Reset position and health
     player.health = player.maxHealth;
     player.x = spawnX;
     player.y = Math.random() * WORLD_HEIGHT;
     player.score = Math.max(0, player.score - 10);
-    player.inventory = [];
+    
+    // Don't reset inventory and loadout anymore
+    // player.inventory = [];  // Remove this line
+    // player.loadout = Array(10).fill(null);  // Remove this line
+    
     player.isInvulnerable = true;
-    player.lastDamageTime = 0;  // Reset damage timer on respawn
+    player.lastDamageTime = 0;
+
+    // Notify clients about the player update
+    io.emit('playerUpdated', player);
 
     setTimeout(() => {
         player.isInvulnerable = false;
@@ -442,25 +450,46 @@ io.on('connection', (socket: AuthenticatedSocket) => {
             // Check for item collisions
             const ITEM_PICKUP_RADIUS = 40;  // Radius for item pickup
             for (let i = items.length - 1; i >= 0; i--) {
-                const item = items[i];
+                const item = items[i] as ItemWithRarity;  // Cast to ItemWithRarity
                 const dx = newX - item.x;
                 const dy = newY - item.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
                 if (distance < ITEM_PICKUP_RADIUS) {
-                    // Add item to player's inventory without size limit
-                    player.inventory.push(item);
+                    // Create a copy of the current inventory
+                    const newInventory = [...player.inventory];
+                    
+                    // Add item to player's inventory copy
+                    newInventory.push({
+                        id: item.id,
+                        type: item.type,
+                        x: item.x,
+                        y: item.y,
+                        rarity: item.rarity  // Ensure rarity is included
+                    });
+                    
+                    // Update player's inventory with the new copy
+                    player.inventory = newInventory;
                     
                     // Remove item from world
                     items.splice(i, 1);
                     
                     // Notify clients
-                    socket.emit('inventoryUpdate', player.inventory);
+                    socket.emit('inventoryUpdate', newInventory);  // Send the new inventory
                     io.emit('itemCollected', { 
                         playerId: socket.id, 
-                        itemId: item.id 
+                        itemId: item.id,
+                        inventory: newInventory  // Include complete inventory in update
                     });
                     io.emit('itemsUpdate', items);
+                    
+                    // Log inventory state
+                    console.log('Updated inventory:', {
+                        playerId: socket.id,
+                        inventorySize: newInventory.length,
+                        newItem: item,
+                        inventory: newInventory
+                    });
                 }
             }
 
