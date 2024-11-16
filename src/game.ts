@@ -2147,33 +2147,69 @@ export class Game {
       return `./assets/${filename}`;
   }
 
-  // Add this method to the Game class
+  // Update the initializeChat method with new styling
   private initializeChat() {
-      // Create chat container
+      // Create chat container with updated styling
       this.chatContainer = document.createElement('div');
       this.chatContainer.className = 'chat-container';
+      this.chatContainer.style.cssText = `
+          position: fixed;
+          bottom: 10px;
+          left: 10px;
+          width: 300px;
+          height: 200px;
+          background: transparent;
+          display: flex;
+          flex-direction: column;
+          z-index: 1000;
+      `;
       
-      // Create messages container
+      // Create messages container with transparent background
       this.chatMessages = document.createElement('div');
       this.chatMessages.className = 'chat-messages';
+      this.chatMessages.style.cssText = `
+          flex-grow: 1;
+          overflow-y: auto;
+          padding: 5px;
+          color: white;
+          text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+          background: transparent;
+      `;
       
       // Create input container
       const inputContainer = document.createElement('div');
       inputContainer.className = 'chat-input-container';
+      inputContainer.style.cssText = `
+          padding: 5px;
+          background: transparent;
+      `;
       
-      // Create input field
+      // Create input field with semi-transparent background
       this.chatInput = document.createElement('input');
       this.chatInput.type = 'text';
       this.chatInput.placeholder = 'Press Enter to chat...';
       this.chatInput.className = 'chat-input';
+      this.chatInput.style.cssText = `
+          width: 100%;
+          padding: 5px;
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 3px;
+          background: rgba(0, 0, 0, 0.3);
+          color: white;
+          outline: none;
+      `;
       
       // Add event listeners
       this.chatInput.addEventListener('focus', () => {
           this.isChatFocused = true;
+          // Make input background slightly more opaque when focused
+          this.chatInput!.style.background = 'rgba(0, 0, 0, 0.5)';
       });
       
       this.chatInput.addEventListener('blur', () => {
           this.isChatFocused = false;
+          // Restore original transparency when blurred
+          this.chatInput!.style.background = 'rgba(0, 0, 0, 0.3)';
       });
       
       this.chatInput.addEventListener('keypress', (e) => {
@@ -2193,15 +2229,24 @@ export class Game {
       this.socket.emit('requestChatHistory');
   }
 
-  // Add this method to handle adding messages
+  // Update the addChatMessage method with new message styling
   private addChatMessage(message: { sender: string; content: string; timestamp: number }) {
       if (!this.chatMessages) return;
       
       const messageElement = document.createElement('div');
       messageElement.className = 'chat-message';
+      messageElement.style.cssText = `
+          margin: 2px 0;
+          font-size: 14px;
+          word-wrap: break-word;
+      `;
       
       const time = new Date(message.timestamp).toLocaleTimeString();
-      messageElement.innerHTML = `<span class="chat-time">[${time}]</span> <span class="chat-sender">${message.sender}:</span> ${message.content}`;
+      messageElement.innerHTML = `
+          <span class="chat-time" style="color: rgba(255, 255, 255, 0.6);">[${time}]</span>
+          <span class="chat-sender" style="color: #00ff00;">${message.sender}:</span>
+          <span style="color: white;">${message.content}</span>
+      `;
       
       this.chatMessages.appendChild(messageElement);
       this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
