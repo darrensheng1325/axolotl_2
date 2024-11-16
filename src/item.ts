@@ -3,4 +3,5 @@ export interface Item {
   type: 'health_potion' | 'speed_boost' | 'shield';
   x: number;
   y: number;
+  rarity?: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
 }

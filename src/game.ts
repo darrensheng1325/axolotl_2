@@ -18,6 +18,16 @@ interface SandboxWindow extends Window {
     eval?: (code: string) => any;
 }
 
+// Add these interfaces near the top of the file where other interfaces are defined
+interface ItemRarityColors {
+    common: string;
+    uncommon: string;
+    rare: string;
+    epic: string;
+    legendary: string;
+    mythic: string;
+}
+
 export class Game {
   private speedBoostActive: boolean = false;
   private shieldActive: boolean = false;
@@ -141,6 +151,15 @@ export class Game {
   private isChatFocused: boolean = false;
   // Add to Game class properties
   private pendingScripts: Map<string, SandboxedScript> = new Map();
+  // Add to Game class properties
+  private readonly ITEM_RARITY_COLORS: ItemRarityColors = {
+      common: '#808080',      // Gray
+      uncommon: '#1eff00',    // Green
+      rare: '#0070dd',        // Blue
+      epic: '#a335ee',        // Purple
+      legendary: '#ff8000',   // Orange
+      mythic: '#ff0000'       // Red
+  };
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -2043,16 +2062,55 @@ export class Game {
       const grid = document.createElement('div');
       grid.className = 'inventory-grid';
 
-      // Add inventory items
-      player.inventory.forEach((item, index) => {
+      // Stack similar items
+      const stackedItems = new Map<string, { item: Item; count: number }>();
+      player.inventory.forEach(item => {
+          const key = item.type;
+          const stack = stackedItems.get(key);
+          if (stack) {
+              stack.count++;
+          } else {
+              stackedItems.set(key, { item, count: 1 });
+          }
+      });
+
+      // Add stacked inventory items
+      stackedItems.forEach(({ item, count }, type) => {
           const itemElement = document.createElement('div');
           itemElement.className = 'inventory-item';
           itemElement.draggable = true;
-          itemElement.dataset.index = index.toString();
+
+          // Add rarity background
+          const rarityColor = this.ITEM_RARITY_COLORS[item.rarity || 'common'];
+          itemElement.style.cssText = `
+              position: relative;
+              width: 90px;
+              height: 90px;
+              background-color: ${rarityColor}20;
+              border: 2px solid ${rarityColor};
+              border-radius: 5px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              cursor: pointer;
+              transition: all 0.2s ease;
+          `;
+
+          // Add hover effect
+          itemElement.addEventListener('mouseover', () => {
+              itemElement.style.transform = 'scale(1.05)';
+              itemElement.style.boxShadow = `0 0 10px ${rarityColor}`;
+          });
+
+          itemElement.addEventListener('mouseout', () => {
+              itemElement.style.transform = 'scale(1)';
+              itemElement.style.boxShadow = 'none';
+          });
 
           // Add drag start event listener
           itemElement.addEventListener('dragstart', (e: Event) => {
               const dragEvent = e as DragEvent;
+              const index = player.inventory.findIndex(i => i.type === type);
               dragEvent.dataTransfer?.setData('text/plain', index.toString());
               dragEvent.dataTransfer!.effectAllowed = 'move';
               itemElement.classList.add('dragging');
@@ -2065,9 +2123,48 @@ export class Game {
           const img = document.createElement('img');
           img.src = `./assets/${item.type}.png`;
           img.alt = item.type;
-          img.draggable = false; // Prevent image from being dragged instead of container
-          itemElement.appendChild(img);
+          img.draggable = false;
+          img.style.cssText = `
+              width: 60px;
+              height: 60px;
+              object-fit: contain;
+          `;
 
+          // Add rarity text
+          const rarityText = document.createElement('div');
+          rarityText.className = 'item-rarity';
+          rarityText.textContent = item.rarity?.toUpperCase() || 'COMMON';
+          rarityText.style.cssText = `
+              position: absolute;
+              top: 2px;
+              left: 2px;
+              font-size: 10px;
+              color: ${rarityColor};
+              text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+              pointer-events: none;
+          `;
+
+          // Add count badge if more than 1
+          if (count > 1) {
+              const countBadge = document.createElement('div');
+              countBadge.className = 'item-count';
+              countBadge.textContent = count.toString();
+              countBadge.style.cssText = `
+                  position: absolute;
+                  bottom: 2px;
+                  right: 2px;
+                  background: rgba(0, 0, 0, 0.7);
+                  color: white;
+                  padding: 2px 4px;
+                  border-radius: 10px;
+                  font-size: 12px;
+                  pointer-events: none;
+              `;
+              itemElement.appendChild(countBadge);
+          }
+
+          itemElement.appendChild(rarityText);
+          itemElement.appendChild(img);
           grid.appendChild(itemElement);
       });
 
