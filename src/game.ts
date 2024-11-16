@@ -28,6 +28,12 @@ interface ItemRarityColors {
     mythic: string;
 }
 
+// Add after other interfaces at the top
+interface CraftingSlot {
+    index: number;
+    item: Item | null;
+}
+
 export class Game {
   private speedBoostActive: boolean = false;
   private shieldActive: boolean = false;
@@ -160,6 +166,10 @@ export class Game {
       legendary: '#FFA500',   // Orange
       mythic: '#FF0000'      // Red
   };
+  // Add to Game class properties
+  private craftingPanel: HTMLDivElement | null = null;
+  private craftingSlots: CraftingSlot[] = Array(4).fill(null).map((_, i) => ({ index: i, item: null }));
+  private isCraftingOpen: boolean = false;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -370,6 +380,9 @@ export class Game {
           }
       `;
       document.head.appendChild(style);
+
+      // Add to constructor after other UI initialization
+      this.initializeCrafting();
   }
 
   private async initializeSprites(): Promise<void> {
@@ -821,6 +834,11 @@ export class Game {
                   20
               );
               return;
+          }
+
+          // Add crafting toggle with 'R' key
+          if (event.key === 'r' || event.key === 'R') {
+              this.toggleCrafting();
           }
 
           this.keysPressed.add(event.key);
@@ -2772,5 +2790,271 @@ export class Game {
       
       // Request chat history
       this.socket.emit('requestChatHistory');
+  }
+
+  // Add to Game class properties
+  private initializeCrafting() {
+      // Create crafting panel
+      this.craftingPanel = document.createElement('div');
+      this.craftingPanel.id = 'craftingPanel';
+      this.craftingPanel.className = 'crafting-panel';
+      this.craftingPanel.style.display = 'none';
+
+      // Create crafting grid
+      const craftingGrid = document.createElement('div');
+      craftingGrid.className = 'crafting-grid';
+      
+      // Create 4 crafting slots
+      for (let i = 0; i < 4; i++) {
+          const slot = document.createElement('div');
+          slot.className = 'crafting-slot';
+          slot.dataset.index = i.toString();
+          
+          // Add drop zone functionality
+          slot.addEventListener('dragover', (e) => {
+              e.preventDefault();
+              slot.classList.add('drag-over');
+          });
+          
+          slot.addEventListener('dragleave', () => {
+              slot.classList.remove('drag-over');
+          });
+          
+          slot.addEventListener('drop', (e) => {
+              e.preventDefault();
+              slot.classList.remove('drag-over');
+              const itemIndex = e.dataTransfer?.getData('text/plain');
+              if (itemIndex) {
+                  this.addItemToCraftingSlot(parseInt(itemIndex), i);
+              }
+          });
+          
+          craftingGrid.appendChild(slot);
+      }
+
+      // Create craft button
+      const craftButton = document.createElement('button');
+      craftButton.className = 'craft-button';
+      craftButton.textContent = 'Craft';
+      craftButton.addEventListener('click', () => this.craftItems());
+
+      this.craftingPanel.appendChild(craftingGrid);
+      this.craftingPanel.appendChild(craftButton);
+      document.body.appendChild(this.craftingPanel);
+
+      // Add crafting styles
+      const style = document.createElement('style');
+      style.textContent = `
+          .crafting-panel {
+              position: fixed;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              background: rgba(0, 0, 0, 0.9);
+              padding: 20px;
+              border-radius: 10px;
+              border: 2px solid #666;
+              display: none;
+              z-index: 1000;
+          }
+
+          .crafting-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 10px;
+              margin-bottom: 20px;
+          }
+
+          .crafting-slot {
+              width: 60px;
+              height: 60px;
+              background: rgba(255, 255, 255, 0.1);
+              border: 2px solid #666;
+              border-radius: 5px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+          }
+
+          .crafting-slot.drag-over {
+              border-color: #00ff00;
+              background: rgba(0, 255, 0, 0.2);
+          }
+
+          .craft-button {
+              width: 100%;
+              padding: 10px;
+              background: #4CAF50;
+              color: white;
+              border: none;
+              border-radius: 5px;
+              cursor: pointer;
+              font-size: 16px;
+          }
+
+          .craft-button:hover {
+              background: #45a049;
+          }
+
+          .craft-button:disabled {
+              background: #666;
+              cursor: not-allowed;
+          }
+      `;
+      document.head.appendChild(style);
+  }
+
+  // Add to Game class properties
+  private toggleCrafting() {
+      if (!this.craftingPanel) return;
+      
+      this.isCraftingOpen = !this.isCraftingOpen;
+      this.craftingPanel.style.display = this.isCraftingOpen ? 'block' : 'none';
+      
+      if (this.isCraftingOpen) {
+          this.updateCraftingDisplay();
+      }
+  }
+
+  // Add to Game class properties
+  private addItemToCraftingSlot(inventoryIndex: number, slotIndex: number) {
+      const player = this.players.get(this.socket?.id || '');
+      if (!player) return;
+
+      const item = player.inventory[inventoryIndex];
+      if (!item) return;
+
+      // Check if slot already has an item
+      if (this.craftingSlots[slotIndex].item) {
+          return;
+      }
+
+      // Check if item can be added (same type and rarity as other items)
+      const existingItems = this.craftingSlots.filter(slot => slot.item !== null);
+      if (existingItems.length > 0) {
+          const firstItem = existingItems[0].item!;
+          if (item.type !== firstItem.type || item.rarity !== firstItem.rarity) {
+              this.showFloatingText(
+                  this.canvas.width / 2,
+                  50,
+                  'Items must be of the same type and rarity!',
+                  '#FF0000',
+                  20
+              );
+              return;
+          }
+      }
+
+      // Add item to crafting slot
+      this.craftingSlots[slotIndex].item = item;
+      
+      // Remove item from inventory
+      player.inventory.splice(inventoryIndex, 1);
+
+      // Update displays
+      this.updateCraftingDisplay();
+      this.updateInventoryDisplay();
+  }
+
+  // Add to Game class properties
+  private craftItems() {
+      const player = this.players.get(this.socket?.id || '');
+      if (!player) return;
+
+      // Check if all slots are filled
+      if (!this.craftingSlots.every(slot => slot.item !== null)) {
+          this.showFloatingText(
+              this.canvas.width / 2,
+              50,
+              'All slots must be filled to craft!',
+              '#FF0000',
+              20
+          );
+          return;
+      }
+
+      // Get first item to check type and rarity
+      const firstItem = this.craftingSlots[0].item!;
+      const currentRarity = firstItem.rarity || 'common';
+
+      // Define rarity upgrade path
+      const rarityUpgrades: Record<string, string> = {
+          common: 'uncommon',
+          uncommon: 'rare',
+          rare: 'epic',
+          epic: 'legendary',
+          legendary: 'mythic'
+      };
+
+      // Check if items can be upgraded
+      if (!rarityUpgrades[currentRarity]) {
+          this.showFloatingText(
+              this.canvas.width / 2,
+              50,
+              'Cannot upgrade mythic items!',
+              '#FF0000',
+              20
+          );
+          return;
+      }
+
+      // Create new upgraded item
+      const newItem: Item = {
+          id: Math.random().toString(36).substr(2, 9),
+          type: firstItem.type,
+          x: 0,
+          y: 0,
+          rarity: rarityUpgrades[currentRarity] as Item['rarity']
+      };
+
+      // Add new item to inventory
+      player.inventory.push(newItem);
+
+      // Clear crafting slots
+      this.craftingSlots.forEach(slot => slot.item = null);
+
+      // Show success message
+      this.showFloatingText(
+          this.canvas.width / 2,
+          50,
+          `Successfully crafted ${newItem.rarity} ${newItem.type}!`,
+          this.ITEM_RARITY_COLORS[newItem.rarity || 'common'],
+          24
+      );
+
+      // Update displays
+      this.updateCraftingDisplay();
+      this.updateInventoryDisplay();
+
+      // Emit inventory update
+      this.socket?.emit('updateInventory', player.inventory);
+  }
+
+  // Add to Game class properties
+  private updateCraftingDisplay() {
+      const slots = document.querySelectorAll('.crafting-slot');
+      slots.forEach((slot, index) => {
+          // Clear existing content
+          slot.innerHTML = '';
+
+          const craftingSlot = this.craftingSlots[index];
+          if (craftingSlot.item) {
+              const img = document.createElement('img');
+              img.src = `./assets/${craftingSlot.item.type}.png`;
+              img.alt = craftingSlot.item.type;
+              img.style.width = '80%';
+              img.style.height = '80%';
+              img.style.objectFit = 'contain';
+
+              // Add rarity border color
+              if (craftingSlot.item.rarity) {
+                  (slot as HTMLElement).style.borderColor = this.ITEM_RARITY_COLORS[craftingSlot.item.rarity];
+              }
+
+              slot.appendChild(img);
+          } else {
+              (slot as HTMLElement).style.borderColor = '#666';
+          }
+      });
   }
 }
