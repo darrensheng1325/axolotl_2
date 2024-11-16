@@ -1397,20 +1397,21 @@ export class Game {
               return;  // Skip drawing this item if sprite isn't loaded
           }
           
-          // Draw rarity background
+          // Draw rarity ring
           if (item.rarity) {
               this.ctx.save();
+              
+              // Draw outer ring
               this.ctx.beginPath();
               this.ctx.arc(item.x, item.y, 20, 0, Math.PI * 2);
-              this.ctx.fillStyle = this.ITEM_RARITY_COLORS[item.rarity] + '40'; // Add 40 for 25% opacity
-              this.ctx.fill();
+              this.ctx.strokeStyle = this.ITEM_RARITY_COLORS[item.rarity];
+              this.ctx.lineWidth = 3;
               
               // Add glow effect
               this.ctx.shadowColor = this.ITEM_RARITY_COLORS[item.rarity];
               this.ctx.shadowBlur = 10;
-              this.ctx.strokeStyle = this.ITEM_RARITY_COLORS[item.rarity];
-              this.ctx.lineWidth = 2;
               this.ctx.stroke();
+              
               this.ctx.restore();
           }
           
