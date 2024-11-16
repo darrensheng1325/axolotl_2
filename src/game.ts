@@ -2147,8 +2147,79 @@ export class Game {
       return `./assets/${filename}`;
   }
 
-  // Update the initializeChat method with new styling
+  // Update the sanitizeHTML method with proper type casting
+  private sanitizeHTML(str: string): string {
+      // Add 'blink' to allowed tags
+      const allowedTags = new Set(['b', 'i', 'u', 'strong', 'em', 'span', 'color', 'blink']);
+      const allowedAttributes = new Set(['style', 'color']);
+      
+      // Create a temporary div to parse HTML
+      const temp = document.createElement('div');
+      temp.innerHTML = str;
+      
+      // Recursive function to sanitize nodes
+      const sanitizeNode = (node: Node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+              const element = node as HTMLElement;  // Cast to HTMLElement instead of Element
+              const tagName = element.tagName.toLowerCase();
+              
+              // Remove node if tag is not allowed
+              if (!allowedTags.has(tagName)) {
+                  node.parentNode?.removeChild(node);
+                  return;
+              }
+              
+              // Add blinking animation for blink tag
+              if (tagName === 'blink') {
+                  element.style.animation = 'blink 1s step-start infinite';
+              }
+              
+              // Remove disallowed attributes
+              Array.from(element.attributes).forEach(attr => {
+                  if (!allowedAttributes.has(attr.name.toLowerCase())) {
+                      element.removeAttribute(attr.name);
+                  }
+              });
+              
+              // Sanitize style attribute
+              const style = element.getAttribute('style');
+              if (style) {
+                  // Allow color and animation styles
+                  const safeStyle = style.split(';')
+                      .filter(s => {
+                          const prop = s.trim().toLowerCase();
+                          return prop.startsWith('color:') || prop.startsWith('animation:');
+                      })
+                      .join(';');
+                  if (safeStyle) {
+                      element.setAttribute('style', safeStyle);
+                  } else {
+                      element.removeAttribute('style');
+                  }
+              }
+              
+              // Recursively sanitize child nodes
+              Array.from(node.childNodes).forEach(sanitizeNode);
+          }
+      };
+      
+      // Sanitize all nodes
+      Array.from(temp.childNodes).forEach(sanitizeNode);
+      
+      return temp.innerHTML;
+  }
+
+  // Update the initializeChat method to add the blink animation style
   private initializeChat() {
+      // Add blink animation style to document
+      const style = document.createElement('style');
+      style.textContent = `
+          @keyframes blink {
+              50% { opacity: 0; }
+          }
+      `;
+      document.head.appendChild(style);
+
       // Create chat container with updated styling
       this.chatContainer = document.createElement('div');
       this.chatContainer.className = 'chat-container';
@@ -2216,9 +2287,9 @@ export class Game {
           this.chatInput!.style.background = 'rgba(0, 0, 0, 0.3)';
       });
       
+      // Update the help message to include blink tag
       this.chatInput.addEventListener('keypress', (e) => {
           if (e.key === 'Enter' && this.chatInput?.value.trim()) {
-              // Add a help message if the user types /help
               if (this.chatInput.value.trim().toLowerCase() === '/help') {
                   this.addChatMessage({
                       sender: 'System',
@@ -2226,8 +2297,9 @@ export class Game {
                           <b>bold</b>, 
                           <i>italic</i>, 
                           <u>underline</u>, 
-                          <span style="color: red">colored text</span>. 
-                          Example: Hello <b>world</b> in <span style="color: #ff0000">red</span>!`,
+                          <span style="color: red">colored text</span>,
+                          <blink>blinking text</blink>. 
+                          Example: Hello <b>world</b> in <span style="color: #ff0000">red</span> and <blink>blinking</blink>!`,
                       timestamp: Date.now()
                   });
                   this.chatInput.value = '';
@@ -2247,60 +2319,6 @@ export class Game {
       
       // Request chat history
       this.socket.emit('requestChatHistory');
-  }
-
-  // Add this sanitization helper method to the Game class
-  private sanitizeHTML(str: string): string {
-      // Allow specific HTML tags and attributes
-      const allowedTags = new Set(['b', 'i', 'u', 'strong', 'em', 'span', 'color']);
-      const allowedAttributes = new Set(['style', 'color']);
-      
-      // Create a temporary div to parse HTML
-      const temp = document.createElement('div');
-      temp.innerHTML = str;
-      
-      // Recursive function to sanitize nodes
-      const sanitizeNode = (node: Node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-              const element = node as Element;
-              const tagName = element.tagName.toLowerCase();
-              
-              // Remove node if tag is not allowed
-              if (!allowedTags.has(tagName)) {
-                  node.parentNode?.removeChild(node);
-                  return;
-              }
-              
-              // Remove disallowed attributes
-              Array.from(element.attributes).forEach(attr => {
-                  if (!allowedAttributes.has(attr.name.toLowerCase())) {
-                      element.removeAttribute(attr.name);
-                  }
-              });
-              
-              // Sanitize style attribute
-              const style = element.getAttribute('style');
-              if (style) {
-                  // Only allow color-related styles
-                  const safeStyle = style.split(';')
-                      .filter(s => s.trim().toLowerCase().startsWith('color:'))
-                      .join(';');
-                  if (safeStyle) {
-                      element.setAttribute('style', safeStyle);
-                  } else {
-                      element.removeAttribute('style');
-                  }
-              }
-              
-              // Recursively sanitize child nodes
-              Array.from(node.childNodes).forEach(sanitizeNode);
-          }
-      };
-      
-      // Sanitize all nodes
-      Array.from(temp.childNodes).forEach(sanitizeNode);
-      
-      return temp.innerHTML;
   }
 
   // Update the addChatMessage method to handle HTML
