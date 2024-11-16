@@ -2218,6 +2218,22 @@ export class Game {
       
       this.chatInput.addEventListener('keypress', (e) => {
           if (e.key === 'Enter' && this.chatInput?.value.trim()) {
+              // Add a help message if the user types /help
+              if (this.chatInput.value.trim().toLowerCase() === '/help') {
+                  this.addChatMessage({
+                      sender: 'System',
+                      content: `Available HTML tags: 
+                          <b>bold</b>, 
+                          <i>italic</i>, 
+                          <u>underline</u>, 
+                          <span style="color: red">colored text</span>. 
+                          Example: Hello <b>world</b> in <span style="color: #ff0000">red</span>!`,
+                      timestamp: Date.now()
+                  });
+                  this.chatInput.value = '';
+                  return;
+              }
+              
               this.socket.emit('chatMessage', this.chatInput.value.trim());
               this.chatInput.value = '';
           }
@@ -2233,7 +2249,61 @@ export class Game {
       this.socket.emit('requestChatHistory');
   }
 
-  // Update the addChatMessage method with new message styling
+  // Add this sanitization helper method to the Game class
+  private sanitizeHTML(str: string): string {
+      // Allow specific HTML tags and attributes
+      const allowedTags = new Set(['b', 'i', 'u', 'strong', 'em', 'span', 'color']);
+      const allowedAttributes = new Set(['style', 'color']);
+      
+      // Create a temporary div to parse HTML
+      const temp = document.createElement('div');
+      temp.innerHTML = str;
+      
+      // Recursive function to sanitize nodes
+      const sanitizeNode = (node: Node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+              const element = node as Element;
+              const tagName = element.tagName.toLowerCase();
+              
+              // Remove node if tag is not allowed
+              if (!allowedTags.has(tagName)) {
+                  node.parentNode?.removeChild(node);
+                  return;
+              }
+              
+              // Remove disallowed attributes
+              Array.from(element.attributes).forEach(attr => {
+                  if (!allowedAttributes.has(attr.name.toLowerCase())) {
+                      element.removeAttribute(attr.name);
+                  }
+              });
+              
+              // Sanitize style attribute
+              const style = element.getAttribute('style');
+              if (style) {
+                  // Only allow color-related styles
+                  const safeStyle = style.split(';')
+                      .filter(s => s.trim().toLowerCase().startsWith('color:'))
+                      .join(';');
+                  if (safeStyle) {
+                      element.setAttribute('style', safeStyle);
+                  } else {
+                      element.removeAttribute('style');
+                  }
+              }
+              
+              // Recursively sanitize child nodes
+              Array.from(node.childNodes).forEach(sanitizeNode);
+          }
+      };
+      
+      // Sanitize all nodes
+      Array.from(temp.childNodes).forEach(sanitizeNode);
+      
+      return temp.innerHTML;
+  }
+
+  // Update the addChatMessage method to handle HTML
   private addChatMessage(message: { sender: string; content: string; timestamp: number }) {
       if (!this.chatMessages) return;
       
@@ -2247,10 +2317,12 @@ export class Game {
       `;
       
       const time = new Date(message.timestamp).toLocaleTimeString();
+      const sanitizedContent = this.sanitizeHTML(message.content);
+      
       messageElement.innerHTML = `
           <span class="chat-time" style="color: rgba(255, 255, 255, 0.6);">[${time}]</span>
           <span class="chat-sender" style="color: #00ff00;">${message.sender}:</span>
-          <span style="color: white;">${message.content}</span>
+          <span style="color: white;">${sanitizedContent}</span>
       `;
       
       this.chatMessages.appendChild(messageElement);
