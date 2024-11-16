@@ -714,13 +714,64 @@ case 'collectItem':
     break;
 case 'useItem':
     const playerUsingItem = players[socket.id];
-    const inventoryIndex = playerUsingItem.inventory.findIndex(item => item.id === data.itemId);
-    if (inventoryIndex !== -1) {
-        const item = playerUsingItem.inventory[inventoryIndex];
-        playerUsingItem.inventory.splice(inventoryIndex, 1);
-        applyItemEffect(playerUsingItem, item);
-        socket.emit('itemUsed', { playerId: socket.id, itemId: data.itemId });
+    const loadoutSlot = playerUsingItem.loadout.findIndex(item => item?.id === data.itemId);
+    if (loadoutSlot === -1) return;  // Item not found in loadout
+
+    const item = playerUsingItem.loadout[loadoutSlot];
+    if (!item || item.onCooldown) return;
+
+    const rarityMultipliers = {
+        common: 1,
+        uncommon: 1.5,
+        rare: 2,
+        epic: 2.5,
+        legendary: 3,
+        mythic: 4
+    };
+
+    const multiplier = item.rarity ? rarityMultipliers[item.rarity] : 1;
+
+    switch (item.type) {
+        case 'health_potion':
+            playerUsingItem.health = Math.min(playerUsingItem.maxHealth, playerUsingItem.health + (50 * multiplier));
+            break;
+        case 'speed_boost':
+            playerUsingItem.speed_boost = true;
+            socket.emit('speedBoostActive', socket.id);
+            setTimeout(() => {
+                if (players[socket.id]) {
+                    players[socket.id].speed_boost = false;
+                }
+            }, 5000 * multiplier);
+            break;
+        case 'shield':
+            playerUsingItem.isInvulnerable = true;
+            setTimeout(() => {
+                if (players[socket.id]) {
+                    players[socket.id].isInvulnerable = false;
+                }
+            }, 3000 * multiplier);
+            break;
     }
+
+    // Add cooldown
+    item.onCooldown = true;
+    setTimeout(() => {
+        if (playerUsingItem.loadout[loadoutSlot] === item) {
+            item.onCooldown = false;
+            socket.emit('itemCooldownComplete', { 
+                playerId: socket.id, 
+                itemId: item.id 
+            });
+        }
+    }, 10000 * (1 / multiplier));  // 10 second base cooldown, reduced by rarity
+
+    socket.emit('itemUsed', { 
+        playerId: socket.id, 
+        itemId: item.id,
+        type: item.type,
+        rarity: item.rarity
+    });
     break;
 case 'requestRespawn':
     var deadPlayer = players[socket.id];

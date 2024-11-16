@@ -512,31 +512,96 @@ io.on('connection', (socket) => {
         }
     });
     socket.on('useItem', (itemId) => {
+        console.log('useItem event received:', itemId); // Add debug log
         const player = constants_1.players[socket.id];
-        const itemIndex = player.inventory.findIndex(item => item.id === itemId);
-        console.log('someone used an item:', itemId);
-        if (itemIndex !== -1) {
-            const item = player.inventory[itemIndex];
-            player.inventory.splice(itemIndex, 1);
-            switch (item.type) {
-                case 'health_potion':
-                    player.health = constants_1.PLAYER_MAX_HEALTH;
-                    player.isInvulnerable = false;
-                    player.speed_boost = false;
-                    break;
-                case 'speed_boost':
-                    player.speed_boost = true;
-                    io.emit('speedBoostActive', player.id);
-                    console.log('Speed boost active:', player.id);
-                    break;
-                case 'shield':
-                    player.speed_boost = false;
-                    player.isInvulnerable = true;
-                    break;
-            }
-            socket.emit('inventoryUpdate', player.inventory);
-            io.emit('playerUpdated', player);
+        if (!player) {
+            console.log('Player not found:', socket.id);
+            return;
         }
+        // Find the item in the loadout
+        const loadoutSlot = player.loadout.findIndex(item => (item === null || item === void 0 ? void 0 : item.id) === itemId);
+        console.log('Found item in loadout slot:', loadoutSlot); // Add debug log
+        if (loadoutSlot === -1) {
+            console.log('Item not found in loadout:', itemId);
+            return; // Item not found in loadout
+        }
+        const item = player.loadout[loadoutSlot]; // Cast to ItemWithRarity
+        if (!item) {
+            console.log('Item is null');
+            return;
+        }
+        if (item.onCooldown) {
+            console.log('Item is on cooldown:', itemId);
+            return;
+        }
+        console.log('Using item:', {
+            itemId,
+            type: item.type,
+            rarity: item.rarity,
+            loadoutSlot
+        });
+        // Rest of the code remains the same...
+        const rarityMultipliers = {
+            common: 1,
+            uncommon: 1.5,
+            rare: 2,
+            epic: 2.5,
+            legendary: 3,
+            mythic: 4
+        };
+        const multiplier = item.rarity ? rarityMultipliers[item.rarity] : 1;
+        switch (item.type) {
+            case 'health_potion':
+                player.health = Math.min(player.maxHealth, player.health + (50 * multiplier));
+                console.log('Applied health potion effect:', player.health);
+                break;
+            case 'speed_boost':
+                player.speed_boost = true;
+                io.emit('speedBoostActive', player.id);
+                console.log('Applied speed boost effect');
+                setTimeout(() => {
+                    if (constants_1.players[socket.id]) {
+                        constants_1.players[socket.id].speed_boost = false;
+                        console.log('Speed boost wore off');
+                    }
+                }, 5000 * multiplier);
+                break;
+            case 'shield':
+                player.isInvulnerable = true;
+                console.log('Applied shield effect');
+                setTimeout(() => {
+                    if (constants_1.players[socket.id]) {
+                        constants_1.players[socket.id].isInvulnerable = false;
+                        console.log('Shield wore off');
+                    }
+                }, 3000 * multiplier);
+                break;
+        }
+        // Notify clients about the item use without removing it
+        io.emit('itemUsed', {
+            playerId: socket.id,
+            itemId: itemId,
+            type: item.type,
+            rarity: item.rarity
+        });
+        console.log('Emitted itemUsed event');
+        // Add cooldown to the item
+        const cooldownTime = 10000; // 10 seconds base cooldown
+        item.onCooldown = true;
+        console.log('Added cooldown to item');
+        setTimeout(() => {
+            if (player.loadout[loadoutSlot] === item) {
+                item.onCooldown = false;
+                io.emit('itemCooldownComplete', {
+                    playerId: socket.id,
+                    itemId: itemId
+                });
+                console.log('Cooldown complete for item:', itemId);
+            }
+        }, cooldownTime * (1 / multiplier));
+        // Update the player state
+        io.emit('playerUpdated', player);
+        console.log('Updated player state');
     });
     // Add save handler for when players gain XP or level up
     // Update the addXPToPlayer function to save progress

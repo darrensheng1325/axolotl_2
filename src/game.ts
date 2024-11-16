@@ -346,6 +346,30 @@ export class Game {
       if (!isSinglePlayer) {
           this.initializeChat();
       }
+
+      // Add this to the constructor after creating the loadout bar
+      const style = document.createElement('style');
+      style.textContent = `
+          .loadout-slot.on-cooldown {
+              position: relative;
+              overflow: hidden;
+          }
+          .loadout-slot.on-cooldown::after {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              background: rgba(0, 0, 0, 0.5);
+              animation: cooldown 10s linear;
+          }
+          @keyframes cooldown {
+              from { height: 100%; }
+              to { height: 0%; }
+          }
+      `;
+      document.head.appendChild(style);
   }
 
   private async initializeSprites(): Promise<void> {
@@ -1876,31 +1900,83 @@ export class Game {
   }
 
   private useLoadoutItem(slot: number) {
-      const player = this.players.get(this.socket?.id || '');
-      if (!player || !player.loadout[slot]) return;
+    const player = this.players.get(this.socket?.id || '');
+    if (!player || !player.loadout[slot]) return;
 
-      const item = player.loadout[slot];
-      if (!item) return;
+    const item = player.loadout[slot];
+    if (!item || (item as any).onCooldown) return;  // Check for cooldown
 
-      // Use the item
-      this.socket?.emit('useItem', item.id);
-      console.log('Used item:', item.id);
-      
-      // Remove from loadout
-      player.loadout[slot] = null;
+    // Use the item
+    this.socket?.emit('useItem', item.id);
+    console.log('Used item:', item.id);
 
-      // Update server
-      this.socket?.emit('updateLoadout', {
-          loadout: player.loadout,
-          inventory: player.inventory
-      });
+    // Listen for item effects
+    this.socket?.on('speedBoostActive', (playerId: string) => {
+        if (playerId === this.socket?.id) {
+            this.speedBoostActive = true;
+            console.log('Speed boost activated');
+        }
+    });
 
-      // Update displays
-      if (this.isInventoryOpen) {
-          this.updateInventoryDisplay();
-      }
-      this.updateLoadoutDisplay();
-  }
+    // Show floating text based on item type and rarity
+    const rarityMultipliers: Record<string, number> = {
+        common: 1,
+        uncommon: 1.5,
+        rare: 2,
+        epic: 2.5,
+        legendary: 3,
+        mythic: 4
+    };
+    const multiplier = item.rarity ? rarityMultipliers[item.rarity] : 1;
+
+    switch (item.type) {
+        case 'health_potion':
+            this.showFloatingText(
+                player.x,
+                player.y - 30,
+                `+${Math.floor(50 * multiplier)} HP`,
+                '#32CD32',
+                20
+            );
+            break;
+        case 'speed_boost':
+            this.showFloatingText(
+                player.x,
+                player.y - 30,
+                `Speed Boost (${Math.floor(5 * multiplier)}s)`,
+                '#4169E1',
+                20
+            );
+            break;
+        case 'shield':
+            this.showFloatingText(
+                player.x,
+                player.y - 30,
+                `Shield (${Math.floor(3 * multiplier)}s)`,
+                '#FFD700',
+                20
+            );
+            break;
+    }
+
+    // Add visual cooldown effect to the loadout slot
+    const slot_element = document.querySelector(`.loadout-slot[data-slot="${slot}"]`);
+    if (slot_element) {
+        slot_element.classList.add('on-cooldown');
+        
+        // Remove cooldown class when cooldown is complete
+        const cooldownTime = 10000 * (1 / multiplier);  // 10 seconds base, reduced by rarity
+        setTimeout(() => {
+            slot_element.classList.remove('on-cooldown');
+        }, cooldownTime);
+    }
+
+    // Update displays
+    if (this.isInventoryOpen) {
+        this.updateInventoryDisplay();
+    }
+    this.updateLoadoutDisplay();
+}
 
   private updateLoadoutDisplay() {
       const player = this.players.get(this.socket?.id || '');
