@@ -152,13 +152,13 @@ export class Game {
   // Add to Game class properties
   private pendingScripts: Map<string, SandboxedScript> = new Map();
   // Add to Game class properties
-  private readonly ITEM_RARITY_COLORS: ItemRarityColors = {
+  private readonly ITEM_RARITY_COLORS: Record<string, string> = {
       common: '#808080',      // Gray
-      uncommon: '#1eff00',    // Green
-      rare: '#0070dd',        // Blue
-      epic: '#a335ee',        // Purple
-      legendary: '#ff8000',   // Orange
-      mythic: '#ff0000'       // Red
+      uncommon: '#008000',    // Green
+      rare: '#0000FF',       // Blue
+      epic: '#800080',       // Purple
+      legendary: '#FFA500',   // Orange
+      mythic: '#FF0000'      // Red
   };
 
   constructor(isSinglePlayer: boolean = false) {
@@ -175,7 +175,10 @@ export class Game {
       this.isSinglePlayer = isSinglePlayer;
 
       // Initialize sprites with CORS settings and wait for them to load
-      this.initializeSprites().then(() => {
+      Promise.all([
+          this.initializeSprites(),
+          this.setupItemSprites()
+      ]).then(() => {
           console.log('All sprites loaded successfully');
           this.updateColorPreview();
           this.gameLoop();
@@ -1389,7 +1392,32 @@ export class Game {
       // Draw items
       this.items.forEach(item => {
           const sprite = this.itemSprites[item.type];
-          this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
+          if (!sprite) {
+              console.warn(`No sprite found for item type: ${item.type}`);
+              return;  // Skip drawing this item if sprite isn't loaded
+          }
+          
+          // Draw rarity background
+          if (item.rarity) {
+              this.ctx.save();
+              this.ctx.beginPath();
+              this.ctx.arc(item.x, item.y, 20, 0, Math.PI * 2);
+              this.ctx.fillStyle = this.ITEM_RARITY_COLORS[item.rarity] + '40'; // Add 40 for 25% opacity
+              this.ctx.fill();
+              
+              // Add glow effect
+              this.ctx.shadowColor = this.ITEM_RARITY_COLORS[item.rarity];
+              this.ctx.shadowBlur = 10;
+              this.ctx.strokeStyle = this.ITEM_RARITY_COLORS[item.rarity];
+              this.ctx.lineWidth = 2;
+              this.ctx.stroke();
+              this.ctx.restore();
+          }
+          
+          // Draw the item sprite
+          if (sprite.complete) {  // Only draw if the sprite is fully loaded
+              this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
+          }
       });
 
       // Draw player inventory
@@ -1438,26 +1466,29 @@ export class Game {
       this.itemSprites = {};
       const itemTypes = ['health_potion', 'speed_boost', 'shield'];
       
-      await Promise.all(itemTypes.map(async type => {
-          const sprite = new Image();
-          sprite.crossOrigin = "anonymous";
-          
-          try {
+      try {
+          await Promise.all(itemTypes.map(async type => {
+              const sprite = new Image();
+              sprite.crossOrigin = "anonymous";
               const url = await this.getAssetUrl(`${type}.png`);
+              
               await new Promise<void>((resolve, reject) => {
-                  sprite.onload = () => resolve();
-                  sprite.onerror = reject;
+                  sprite.onload = () => {
+                      this.itemSprites[type] = sprite;
+                      resolve();
+                  };
+                  sprite.onerror = (error) => {
+                      console.error(`Failed to load sprite for ${type}:`, error);
+                      reject(error);
+                  };
                   sprite.src = url;
               });
-              
-              console.log(`Loaded sprite for ${type}`);
-              this.itemSprites[type] = sprite;
-              this.updateInventoryDisplay();
-              this.updateLoadoutDisplay();
-          } catch (error) {
-              console.error(`Error loading sprite for ${type}:`, error);
-          }
-      }));
+          }));
+          
+          console.log('All item sprites loaded successfully:', Object.keys(this.itemSprites));
+      } catch (error) {
+          console.error('Error loading item sprites:', error);
+      }
   }
 
   private resizeCanvas() {
