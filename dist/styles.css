@@ -100,6 +100,12 @@ body {
     margin-top: 0px;
 }
 
+.controls {
+    color: black;
+    font-size: 1rem;
+    margin-top: 60px;
+}
+
 .auth-form.hidden {
     display: none;
 }

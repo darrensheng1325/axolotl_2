@@ -169,13 +169,25 @@
     <div class="center_text">
         <p class="title">Axolotl Game</p>
         <p class="instructions">Use arrow keys to move. Touch enemies to attack.</p>
-        <input type="text" id="nameInput" class="name-input" placeholder="Enter your name">
+        <input type="text" id="nameInput" class="name-input" placeholder="This axolotl is called...">
         <div class="color-picker">
             <label for="hueSlider">Player Color:</label>
             <input type="range" id="hueSlider" min="0" max="360" value="0" class="hue-slider">
             <div id="colorPreview" class="color-preview"></div>
             <button id="updateColorButton" class="color-update-btn">Update Color</button>
         </div>
+        <div class="controls">
+            <p>Controls:</p>
+            <br/>
+            <p>Press I to open the inventory.</p>
+            <br/>
+            <p>Press number keys 1-9 to use items.</p>
+            <br/>
+            <p>Press C to switch between mouse and keyboard controls</p>
+        </div>
+    </div>
+    <div id="deathScreen" class="hidden">
+        <p>You died!</p>
     </div>
     <script>
         console.log('Hello');
