@@ -800,6 +800,47 @@ export class Game {
       this.socket.on('chatHistory', (history: Array<{ sender: string; content: string; timestamp: number }>) => {
           history.forEach(message => this.addChatMessage(message));
       });
+
+      this.socket.on('craftingSuccess', (data: { newItem: Item; inventory: Item[] }) => {
+          const player = this.players.get(this.socket?.id || '');
+          if (player) {
+              player.inventory = data.inventory;
+              
+              this.showFloatingText(
+                  this.canvas.width / 2,
+                  50,
+                  `Successfully crafted ${data.newItem.rarity} ${data.newItem.type}!`,
+                  this.ITEM_RARITY_COLORS[data.newItem.rarity || 'common'],
+                  24
+              );
+
+              this.updateInventoryDisplay();
+          }
+      });
+
+      this.socket.on('craftingFailed', (message: string) => {
+          this.showFloatingText(
+              this.canvas.width / 2,
+              50,
+              message,
+              '#FF0000',
+              20
+          );
+
+          // Return items to inventory
+          const player = this.players.get(this.socket?.id || '');
+          if (player) {
+              this.craftingSlots.forEach(slot => {
+                  if (slot.item) {
+                      player.inventory.push(slot.item);
+                  }
+              });
+              this.craftingSlots.forEach(slot => slot.item = null);
+              
+              this.updateCraftingDisplay();
+              this.updateInventoryDisplay();
+          }
+      });
   }
 
   private setupEventListeners() {
@@ -2973,61 +3014,17 @@ export class Game {
           return;
       }
 
-      // Get first item to check type and rarity
-      const firstItem = this.craftingSlots[0].item!;
-      const currentRarity = firstItem.rarity || 'common';
+      // Get items for crafting
+      const craftingItems = this.craftingSlots
+          .map(slot => slot.item)
+          .filter((item): item is Item => item !== null);
 
-      // Define rarity upgrade path
-      const rarityUpgrades: Record<string, string> = {
-          common: 'uncommon',
-          uncommon: 'rare',
-          rare: 'epic',
-          epic: 'legendary',
-          legendary: 'mythic'
-      };
+      // Send crafting request to server
+      this.socket?.emit('craftItems', { items: craftingItems });
 
-      // Check if items can be upgraded
-      if (!rarityUpgrades[currentRarity]) {
-          this.showFloatingText(
-              this.canvas.width / 2,
-              50,
-              'Cannot upgrade mythic items!',
-              '#FF0000',
-              20
-          );
-          return;
-      }
-
-      // Create new upgraded item
-      const newItem: Item = {
-          id: Math.random().toString(36).substr(2, 9),
-          type: firstItem.type,
-          x: 0,
-          y: 0,
-          rarity: rarityUpgrades[currentRarity] as Item['rarity']
-      };
-
-      // Add new item to inventory
-      player.inventory.push(newItem);
-
-      // Clear crafting slots
+      // Clear crafting slots immediately for responsiveness
       this.craftingSlots.forEach(slot => slot.item = null);
-
-      // Show success message
-      this.showFloatingText(
-          this.canvas.width / 2,
-          50,
-          `Successfully crafted ${newItem.rarity} ${newItem.type}!`,
-          this.ITEM_RARITY_COLORS[newItem.rarity || 'common'],
-          24
-      );
-
-      // Update displays
       this.updateCraftingDisplay();
-      this.updateInventoryDisplay();
-
-      // Emit inventory update
-      this.socket?.emit('updateInventory', player.inventory);
   }
 
   // Add to Game class properties

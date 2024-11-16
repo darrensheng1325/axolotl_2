@@ -690,6 +690,63 @@ io.on('connection', (socket) => {
     socket.on('requestChatHistory', () => {
         socket.emit('chatHistory', chatHistory);
     });
+    // Add to socket connection handler after other socket events
+    io.on('connection', (socket) => {
+        // ... existing connection code ...
+        socket.on('craftItems', (data) => {
+            const player = constants_1.players[socket.id];
+            if (!player)
+                return;
+            // Verify all items exist in player's inventory
+            const validItems = data.items.every(craftItem => player.inventory.some(invItem => invItem.id === craftItem.id));
+            if (!validItems) {
+                socket.emit('craftingFailed', 'Invalid items selected for crafting');
+                return;
+            }
+            // Verify all items are same type and rarity
+            const firstItem = data.items[0];
+            const validCraft = data.items.every(item => item.type === firstItem.type &&
+                item.rarity === firstItem.rarity);
+            if (!validCraft) {
+                socket.emit('craftingFailed', 'Items must be of same type and rarity');
+                return;
+            }
+            // Define rarity upgrade path
+            const rarityUpgrades = {
+                common: 'uncommon',
+                uncommon: 'rare',
+                rare: 'epic',
+                epic: 'legendary',
+                legendary: 'mythic'
+            };
+            const currentRarity = firstItem.rarity || 'common';
+            if (!rarityUpgrades[currentRarity]) {
+                socket.emit('craftingFailed', 'Cannot upgrade mythic items');
+                return;
+            }
+            // Remove crafting items from inventory
+            player.inventory = player.inventory.filter(invItem => !data.items.some(craftItem => craftItem.id === invItem.id));
+            // Create new upgraded item
+            const newItem = {
+                id: Math.random().toString(36).substr(2, 9),
+                type: firstItem.type,
+                x: player.x,
+                y: player.y,
+                rarity: rarityUpgrades[currentRarity]
+            };
+            // Add new item to inventory
+            player.inventory.push(newItem);
+            // Notify clients
+            socket.emit('craftingSuccess', {
+                newItem,
+                inventory: player.inventory
+            });
+            // Save player progress
+            if (socket.userId) {
+                savePlayerProgress(player, socket.userId);
+            }
+        });
+    });
 });
 // Move enemies every 100ms
 setInterval(() => {
