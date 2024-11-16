@@ -242,13 +242,46 @@ function createObstacle(): Obstacle {
   };
 }
 
-function createItem(): Item {
-  return {
-    id: Math.random().toString(36).substr(2, 9),
-    type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as 'health_potion' | 'speed_boost' | 'shield',
-    x: Math.random() * WORLD_WIDTH,
-    y: Math.random() * WORLD_HEIGHT
-  };
+// Add near the top with other interfaces
+interface ItemWithRarity extends Item {
+    rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
+}
+
+// Update the createItem function signature
+function createItem(): ItemWithRarity {
+    const zoneIndex = Math.floor(Math.random() * 6);
+    const pos = getRandomPositionInZone(zoneIndex);
+    
+    // Determine rarity based on zone
+    let rarity: ItemWithRarity['rarity'] = 'common';
+    switch(zoneIndex) {
+        case 0:
+            rarity = 'common';
+            break;
+        case 1:
+            rarity = Math.random() < 0.7 ? 'common' : 'uncommon';
+            break;
+        case 2:
+            rarity = Math.random() < 0.6 ? 'uncommon' : 'rare';
+            break;
+        case 3:
+            rarity = Math.random() < 0.6 ? 'rare' : 'epic';
+            break;
+        case 4:
+            rarity = Math.random() < 0.7 ? 'epic' : 'legendary';
+            break;
+        case 5:
+            rarity = Math.random() < 0.8 ? 'legendary' : 'mythic';
+            break;
+    }
+
+    return {
+        id: Math.random().toString(36).substr(2, 9),
+        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
+        x: pos.x,
+        y: pos.y,
+        rarity
+    };
 }
 
 // Initialize enemies
@@ -479,13 +512,14 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                                 // Check for item drop
                                 const dropChance = DROP_CHANCES[enemy.tier as keyof typeof DROP_CHANCES];
                                 if (Math.random() < dropChance) {
-                                    const newItem = {
+                                    const newItem: ItemWithRarity = {
                                         id: Math.random().toString(36).substr(2, 9),
                                         type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
                                         x: enemy.x,
-                                        y: enemy.y
+                                        y: enemy.y,
+                                        rarity: enemy.tier // Match the enemy's tier for the item rarity
                                     };
-                                    // Add item to the world instead of player's inventory
+                                    // Add item to the world
                                     items.push(newItem);
                                     // Notify all clients about the new item
                                     io.emit('itemsUpdate', items);

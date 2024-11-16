@@ -227,12 +227,38 @@ function createObstacle() {
         health: isEnemy ? constants_1.ENEMY_CORAL_HEALTH : undefined
     };
 }
+// Update the createItem function signature
 function createItem() {
+    const zoneIndex = Math.floor(Math.random() * 6);
+    const pos = (0, server_utils_1.getRandomPositionInZone)(zoneIndex);
+    // Determine rarity based on zone
+    let rarity = 'common';
+    switch (zoneIndex) {
+        case 0:
+            rarity = 'common';
+            break;
+        case 1:
+            rarity = Math.random() < 0.7 ? 'common' : 'uncommon';
+            break;
+        case 2:
+            rarity = Math.random() < 0.6 ? 'uncommon' : 'rare';
+            break;
+        case 3:
+            rarity = Math.random() < 0.6 ? 'rare' : 'epic';
+            break;
+        case 4:
+            rarity = Math.random() < 0.7 ? 'epic' : 'legendary';
+            break;
+        case 5:
+            rarity = Math.random() < 0.8 ? 'legendary' : 'mythic';
+            break;
+    }
     return {
         id: Math.random().toString(36).substr(2, 9),
         type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
-        x: Math.random() * constants_1.WORLD_WIDTH,
-        y: Math.random() * constants_1.WORLD_HEIGHT
+        x: pos.x,
+        y: pos.y,
+        rarity
     };
 }
 // Initialize enemies
@@ -436,9 +462,10 @@ io.on('connection', (socket) => {
                                         id: Math.random().toString(36).substr(2, 9),
                                         type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
                                         x: enemy.x,
-                                        y: enemy.y
+                                        y: enemy.y,
+                                        rarity: enemy.tier // Match the enemy's tier for the item rarity
                                     };
-                                    // Add item to the world instead of player's inventory
+                                    // Add item to the world
                                     constants_1.items.push(newItem);
                                     // Notify all clients about the new item
                                     io.emit('itemsUpdate', constants_1.items);

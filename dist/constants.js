@@ -66,9 +66,9 @@ exports.ENEMY_SIZE_MULTIPLIERS = {
 // Add drop chances like in singleplayer
 exports.DROP_CHANCES = {
     common: 1, // 10% chance
-    uncommon: 0.2, // 20% chance
-    rare: 0.3, // 30% chance
-    epic: 0.4, // 40% chance
-    legendary: 0.5, // 50% chance
-    mythic: 0.75 // 75% chance
+    uncommon: 1, // 20% chance
+    rare: 1, // 30% chance
+    epic: 1, // 40% chance
+    legendary: 1, // 50% chance
+    mythic: 1 // 75% chance
 };

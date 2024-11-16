@@ -67,6 +67,16 @@ const dots = [];
 const decorations = [];
 const sands = [];
 
+// Add near the top with other constants
+const ITEM_RARITY_COLORS = {
+    common: '#808080',      // Gray
+    uncommon: '#1eff00',    // Green
+    rare: '#0070dd',       // Blue
+    epic: '#a335ee',       // Purple
+    legendary: '#ff8000',   // Orange
+    mythic: '#ff0000'      // Red
+};
+
 // Helper function to get random position in a specific zone
 function getRandomPositionInZone(zoneIndex) {
     const zoneWidth = WORLD_WIDTH / 6;  // 6 zones
@@ -350,11 +360,38 @@ function createObstacle() {
 function createItem() {
     const zoneIndex = Math.floor(Math.random() * 6);
     const pos = getRandomPositionInZone(zoneIndex);
+    
+    // Determine rarity based on zone
+    let rarity;
+    switch(zoneIndex) {
+        case 0:
+            rarity = 'common';
+            break;
+        case 1:
+            rarity = Math.random() < 0.7 ? 'common' : 'uncommon';
+            break;
+        case 2:
+            rarity = Math.random() < 0.6 ? 'uncommon' : 'rare';
+            break;
+        case 3:
+            rarity = Math.random() < 0.6 ? 'rare' : 'epic';
+            break;
+        case 4:
+            rarity = Math.random() < 0.7 ? 'epic' : 'legendary';
+            break;
+        case 5:
+            rarity = Math.random() < 0.8 ? 'legendary' : 'mythic';
+            break;
+        default:
+            rarity = 'common';
+    }
+
     return {
         id: Math.random().toString(36).substr(2, 9),
         type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
         x: pos.x,
-        y: pos.y
+        y: pos.y,
+        rarity
     };
 }
 
@@ -676,22 +713,12 @@ case 'collectItem':
     }
     break;
 case 'useItem':
-    var playerUsingItem = players[socket.id];
-    var inventoryIndex = playerUsingItem.inventory.findIndex(function (item) { return item.id === data.itemId; });
+    const playerUsingItem = players[socket.id];
+    const inventoryIndex = playerUsingItem.inventory.findIndex(item => item.id === data.itemId);
     if (inventoryIndex !== -1) {
-        var item = playerUsingItem.inventory[inventoryIndex];
+        const item = playerUsingItem.inventory[inventoryIndex];
         playerUsingItem.inventory.splice(inventoryIndex, 1);
-        switch (item.type) {
-            case 'health_potion':
-                playerUsingItem.health = Math.min(playerUsingItem.health + 50, PLAYER_MAX_HEALTH);
-                break;
-            case 'speed_boost':
-                // Implement speed boost
-                break;
-            case 'shield':
-                // Implement shield
-                break;
-        }
+        applyItemEffect(playerUsingItem, item);
         socket.emit('itemUsed', { playerId: socket.id, itemId: data.itemId });
     }
     break;
@@ -723,4 +750,39 @@ moveEnemies();
 console.error('Error in moveEnemies interval:', error);
 }
 }, 100);
+
+// Update the item effects based on rarity
+function applyItemEffect(player, item) {
+    const rarityMultipliers = {
+        common: 1,
+        uncommon: 1.5,
+        rare: 2,
+        epic: 2.5,
+        legendary: 3,
+        mythic: 4
+    };
+
+    const multiplier = rarityMultipliers[item.rarity || 'common'];
+
+    switch (item.type) {
+        case 'health_potion':
+            const healAmount = 50 * multiplier;
+            player.health = Math.min(player.maxHealth, player.health + healAmount);
+            break;
+        case 'speed_boost':
+            player.speed_boost = true;
+            player.speed_boost_multiplier = multiplier;
+            setTimeout(() => {
+                player.speed_boost = false;
+                player.speed_boost_multiplier = 1;
+            }, 5000 * multiplier); // Duration increases with rarity
+            break;
+        case 'shield':
+            player.isInvulnerable = true;
+            setTimeout(() => {
+                player.isInvulnerable = false;
+            }, 3000 * multiplier); // Duration increases with rarity
+            break;
+    }
+}
 `], { type: 'application/javascript' });
