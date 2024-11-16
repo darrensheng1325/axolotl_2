@@ -5,6 +5,19 @@ import { Item } from './item';
 import { workerBlob } from './workerblob';
 import { IMAGE_ASSETS } from './imageAssets';
 
+// Add these interfaces at the top of the file
+interface SandboxedScript {
+    id: string;
+    code: string;
+    sender: string;
+}
+
+// Add this interface to properly type our sandbox window
+interface SandboxWindow extends Window {
+    safeContext?: any;
+    eval?: (code: string) => any;
+}
+
 export class Game {
   private speedBoostActive: boolean = false;
   private shieldActive: boolean = false;
@@ -126,6 +139,8 @@ export class Game {
   private chatInput: HTMLInputElement | null = null;
   private chatMessages: HTMLDivElement | null = null;
   private isChatFocused: boolean = false;
+  // Add to Game class properties
+  private pendingScripts: Map<string, SandboxedScript> = new Map();
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -2147,10 +2162,10 @@ export class Game {
       return `./assets/${filename}`;
   }
 
-  // Update the sanitizeHTML method with proper type casting
+  // Update the sanitizeHTML method to handle script tags
   private sanitizeHTML(str: string): string {
-      // Add 'blink' to allowed tags
-      const allowedTags = new Set(['b', 'i', 'u', 'strong', 'em', 'span', 'color', 'blink']);
+      // Add 'script' to allowed tags
+      const allowedTags = new Set(['b', 'i', 'u', 'strong', 'em', 'span', 'color', 'blink', 'script']);
       const allowedAttributes = new Set(['style', 'color']);
       
       // Create a temporary div to parse HTML
@@ -2160,8 +2175,40 @@ export class Game {
       // Recursive function to sanitize nodes
       const sanitizeNode = (node: Node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-              const element = node as HTMLElement;  // Cast to HTMLElement instead of Element
+              const element = node as HTMLElement;
               const tagName = element.tagName.toLowerCase();
+              
+              if (tagName === 'script') {
+                  // Generate unique ID for this script
+                  const scriptId = 'script_' + Math.random().toString(36).substr(2, 9);
+                  
+                  // Store the script content
+                  this.pendingScripts.set(scriptId, {
+                      id: scriptId,
+                      code: element.textContent || '',
+                      sender: 'Unknown' // Will be set properly in addChatMessage
+                  });
+                  
+                  // Replace script with a warning button
+                  const warningBtn = document.createElement('button');
+                  warningBtn.className = 'script-warning';
+                  warningBtn.setAttribute('data-script-id', scriptId);
+                  warningBtn.style.cssText = `
+                      background: rgba(255, 165, 0, 0.2);
+                      border: 1px solid orange;
+                      color: white;
+                      padding: 2px 5px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                      margin: 0 5px;
+                  `;
+                  warningBtn.textContent = '⚠️ Click to run script';
+                  
+                  // Replace the script node with our warning button
+                  node.parentNode?.replaceChild(warningBtn, node);
+                  return;
+              }
               
               // Remove node if tag is not allowed
               if (!allowedTags.has(tagName)) {
@@ -2209,7 +2256,191 @@ export class Game {
       return temp.innerHTML;
   }
 
-  // Update the initializeChat method to add the blink animation style
+  // Add method to create sandbox and run script
+  private createSandbox(script: SandboxedScript): void {
+      // Create modal for confirmation
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: rgba(0, 0, 0, 0.9);
+          padding: 20px;
+          border-radius: 5px;
+          border: 1px solid orange;
+          color: white;
+          z-index: 2000;
+          font-family: Arial, sans-serif;
+          max-width: 80%;
+      `;
+
+      const content = document.createElement('div');
+      content.innerHTML = `
+          <h3 style="color: orange;">⚠️ Warning: Script Execution</h3>
+          <p>Script from user: ${script.sender}</p>
+          <pre style="
+              background: rgba(255, 255, 255, 0.1);
+              padding: 10px;
+              border-radius: 3px;
+              max-height: 200px;
+              overflow-y: auto;
+              white-space: pre-wrap;
+          ">${script.code}</pre>
+          <p style="color: orange;">This script will run in a sandboxed environment with limited capabilities.</p>
+      `;
+
+      const buttonContainer = document.createElement('div');
+      buttonContainer.style.cssText = `
+          display: flex;
+          gap: 10px;
+          margin-top: 15px;
+          justify-content: center;
+      `;
+
+      const runButton = document.createElement('button');
+      runButton.textContent = 'Run Script';
+      runButton.style.cssText = `
+          background: orange;
+          color: black;
+          border: none;
+          padding: 5px 15px;
+          border-radius: 3px;
+          cursor: pointer;
+      `;
+
+      const cancelButton = document.createElement('button');
+      cancelButton.textContent = 'Cancel';
+      cancelButton.style.cssText = `
+          background: #666;
+          color: white;
+          border: none;
+          padding: 5px 15px;
+          border-radius: 3px;
+          cursor: pointer;
+      `;
+
+      buttonContainer.appendChild(cancelButton);
+      buttonContainer.appendChild(runButton);
+      modal.appendChild(content);
+      modal.appendChild(buttonContainer);
+      document.body.appendChild(modal);
+
+      // Handle button clicks
+      cancelButton.onclick = () => {
+          document.body.removeChild(modal);
+      };
+
+      runButton.onclick = () => {
+          try {
+              // Create sandbox iframe
+              const sandbox = document.createElement('iframe');
+              sandbox.style.display = 'none';
+              document.body.appendChild(sandbox);
+
+              // Create restricted context
+              const restrictedWindow = sandbox.contentWindow as SandboxWindow;
+              if (restrictedWindow) {
+                  // Define allowed APIs
+                  const safeContext = {
+                      console: {
+                          log: (...args: any[]) => {
+                              this.addChatMessage({
+                                  sender: 'Script Output',
+                                  content: args.join(' '),
+                                  timestamp: Date.now()
+                              });
+                          }
+                      },
+                      alert: (msg: string) => {
+                          this.addChatMessage({
+                              sender: 'Script Alert',
+                              content: msg,
+                              timestamp: Date.now()
+                          });
+                      },
+                      // Add more safe APIs as needed
+                  };
+
+                  // Run the script in sandbox using Function constructor instead of eval
+                  const wrappedCode = `
+                      try {
+                          const runScript = new Function('safeContext', 'with (safeContext) { ${script.code} }');
+                          runScript(${JSON.stringify(safeContext)});
+                      } catch (error) {
+                          console.log('Script Error:', error.message);
+                      }
+                  `;
+
+                  // Use Function constructor instead of direct eval
+                  const scriptRunner = new Function('safeContext', wrappedCode);
+                  scriptRunner(safeContext);
+              }
+
+              // Cleanup
+              document.body.removeChild(sandbox);
+              document.body.removeChild(modal);
+          } catch (error) {
+              this.addChatMessage({
+                  sender: 'Script Error',
+                  content: `Failed to execute script: ${error}`,
+                  timestamp: Date.now()
+              });
+              document.body.removeChild(modal);
+          }
+      };
+  }
+
+  // Update addChatMessage to handle script buttons
+  private addChatMessage(message: { sender: string; content: string; timestamp: number }) {
+      if (!this.chatMessages) return;
+      
+      const messageElement = document.createElement('div');
+      messageElement.className = 'chat-message';
+      messageElement.style.cssText = `
+          margin: 2px 0;
+          font-size: 14px;
+          word-wrap: break-word;
+          font-family: Arial, sans-serif;
+      `;
+      
+      const time = new Date(message.timestamp).toLocaleTimeString();
+      
+      // Update pending scripts with sender information
+      const sanitizedContent = this.sanitizeHTML(message.content);
+      this.pendingScripts.forEach(script => {
+          script.sender = message.sender;
+      });
+      
+      messageElement.innerHTML = `
+          <span class="chat-time" style="color: rgba(255, 255, 255, 0.6);">[${time}]</span>
+          <span class="chat-sender" style="color: #00ff00;">${message.sender}:</span>
+          <span style="color: white;">${sanitizedContent}</span>
+      `;
+      
+      // Add click handlers for script buttons
+      messageElement.querySelectorAll('.script-warning').forEach(button => {
+          button.addEventListener('click', () => {
+              const scriptId = (button as HTMLElement).getAttribute('data-script-id');
+              if (scriptId) {
+                  const script = this.pendingScripts.get(scriptId);
+                  if (script) {
+                      this.createSandbox(script);
+                      this.pendingScripts.delete(scriptId);
+                  }
+              }
+          });
+      });
+      
+      this.chatMessages.appendChild(messageElement);
+      this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+      
+      while (this.chatMessages.children.length > 100) {
+          this.chatMessages.removeChild(this.chatMessages.firstChild!);
+      }
+  }
+
+  // Update the help message in initializeChat
   private initializeChat() {
       // Add blink animation style to document
       const style = document.createElement('style');
@@ -2298,8 +2529,10 @@ export class Game {
                           <i>italic</i>, 
                           <u>underline</u>, 
                           <span style="color: red">colored text</span>,
-                          <blink>blinking text</blink>. 
-                          Example: Hello <b>world</b> in <span style="color: #ff0000">red</span> and <blink>blinking</blink>!`,
+                          <blink>blinking text</blink>,
+                          <script>console.log('Hello!')</script> (sandboxed). 
+                          Example: Hello <b>world</b> in <span style="color: #ff0000">red</span> and <blink>blinking</blink>!
+                          Script example: <script>alert('Hello from script!');</script>`,
                       timestamp: Date.now()
                   });
                   this.chatInput.value = '';
@@ -2319,36 +2552,5 @@ export class Game {
       
       // Request chat history
       this.socket.emit('requestChatHistory');
-  }
-
-  // Update the addChatMessage method to handle HTML
-  private addChatMessage(message: { sender: string; content: string; timestamp: number }) {
-      if (!this.chatMessages) return;
-      
-      const messageElement = document.createElement('div');
-      messageElement.className = 'chat-message';
-      messageElement.style.cssText = `
-          margin: 2px 0;
-          font-size: 14px;
-          word-wrap: break-word;
-          font-family: Arial, sans-serif;
-      `;
-      
-      const time = new Date(message.timestamp).toLocaleTimeString();
-      const sanitizedContent = this.sanitizeHTML(message.content);
-      
-      messageElement.innerHTML = `
-          <span class="chat-time" style="color: rgba(255, 255, 255, 0.6);">[${time}]</span>
-          <span class="chat-sender" style="color: #00ff00;">${message.sender}:</span>
-          <span style="color: white;">${sanitizedContent}</span>
-      `;
-      
-      this.chatMessages.appendChild(messageElement);
-      this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
-      
-      // Remove old messages if too many
-      while (this.chatMessages.children.length > 100) {
-          this.chatMessages.removeChild(this.chatMessages.firstChild!);
-      }
   }
 }
