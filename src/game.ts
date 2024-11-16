@@ -2162,6 +2162,7 @@ export class Game {
           display: flex;
           flex-direction: column;
           z-index: 1000;
+          font-family: Arial, sans-serif;
       `;
       
       // Create messages container with transparent background
@@ -2174,6 +2175,7 @@ export class Game {
           color: white;
           text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
           background: transparent;
+          font-family: Arial, sans-serif;
       `;
       
       // Create input container
@@ -2182,6 +2184,7 @@ export class Game {
       inputContainer.style.cssText = `
           padding: 5px;
           background: transparent;
+          font-family: Arial, sans-serif;
       `;
       
       // Create input field with semi-transparent background
@@ -2197,6 +2200,7 @@ export class Game {
           background: rgba(0, 0, 0, 0.3);
           color: white;
           outline: none;
+          font-family: Arial, sans-serif;
       `;
       
       // Add event listeners
@@ -2239,6 +2243,7 @@ export class Game {
           margin: 2px 0;
           font-size: 14px;
           word-wrap: break-word;
+          font-family: Arial, sans-serif;
       `;
       
       const time = new Date(message.timestamp).toLocaleTimeString();
