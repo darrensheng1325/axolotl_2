@@ -702,105 +702,105 @@ case 'playerMovement':
     }
     break;
 
-case 'collectItem':
-    var itemIndex = items.findIndex(function (item) { return item.id === data.itemId; });
-    if (itemIndex !== -1 && players[socket.id].inventory.length < MAX_INVENTORY_SIZE) {
-        var item = items[itemIndex];
-        players[socket.id].inventory.push(item);
-        items.splice(itemIndex, 1);
-        items.push(createItem());
-        socket.emit('itemCollected', { playerId: socket.id, itemId: data.itemId });
+    case 'collectItem':
+        var itemIndex = items.findIndex(function (Item) { return Item.id === data.ItemId; });
+        if (itemIndex !== -1 && players[socket.id].inventory.length < MAX_INVENTORY_SIZE) {
+            var Item = items[itemIndex];
+            players[socket.id].inventory.push(Item);
+            items.splice(itemIndex, 1);
+            items.push(createItem());
+            socket.emit('itemCollected', { playerId: socket.id, itemId: data.itemId });
+        }
+        break;
+    case 'useItem':
+        const playerUsingItem = players[socket.id];
+        const loadoutSlot = playerUsingItem.loadout.findIndex(item => item?.id === data.itemId);
+        if (loadoutSlot === -1) return;  // Item not found in loadout
+
+        const item = playerUsingItem.loadout[loadoutSlot];
+        if (!item || item.onCooldown) return;
+
+        const rarityMultipliers = {
+            common: 1,
+            uncommon: 1.5,
+            rare: 2,
+            epic: 2.5,
+            legendary: 3,
+            mythic: 4
+        };
+
+        const multiplier = item.rarity ? rarityMultipliers[item.rarity] : 1;
+
+        switch (item.type) {
+            case 'health_potion':
+                playerUsingItem.health = Math.min(playerUsingItem.maxHealth, playerUsingItem.health + (50 * multiplier));
+                break;
+            case 'speed_boost':
+                playerUsingItem.speed_boost = true;
+                socket.emit('speedBoostActive', socket.id);
+                setTimeout(() => {
+                    if (players[socket.id]) {
+                        players[socket.id].speed_boost = false;
+                    }
+                }, 5000 * multiplier);
+                break;
+            case 'shield':
+                playerUsingItem.isInvulnerable = true;
+                setTimeout(() => {
+                    if (players[socket.id]) {
+                        players[socket.id].isInvulnerable = false;
+                    }
+                }, 3000 * multiplier);
+                break;
+        }
+
+        // Add cooldown
+        item.onCooldown = true;
+        setTimeout(() => {
+            if (playerUsingItem.loadout[loadoutSlot] === item) {
+                item.onCooldown = false;
+                socket.emit('itemCooldownComplete', { 
+                    playerId: socket.id, 
+                    itemId: item.id 
+                });
+            }
+        }, 10000 * (1 / multiplier));  // 10 second base cooldown, reduced by rarity
+
+        socket.emit('itemUsed', { 
+            playerId: socket.id, 
+            itemId: item.id,
+            type: item.type,
+            rarity: item.rarity
+        });
+        break;
+    case 'requestRespawn':
+        var deadPlayer = players[socket.id];
+        if (deadPlayer) {
+            respawnPlayer(deadPlayer);
+        }
+        break;
+    case 'updateLoadout':
+        var player = players[socket.id];
+        if (player) {
+            player.loadout = data.loadout;
+            player.inventory = data.inventory;
+            socket.emit('playerUpdated', player);
+        }
+        break;
+    // ... (handle other socket events)
     }
     break;
-case 'useItem':
-    const playerUsingItem = players[socket.id];
-    const loadoutSlot = playerUsingItem.loadout.findIndex(item => item?.id === data.itemId);
-    if (loadoutSlot === -1) return;  // Item not found in loadout
-
-    const item = playerUsingItem.loadout[loadoutSlot];
-    if (!item || item.onCooldown) return;
-
-    const rarityMultipliers = {
-        common: 1,
-        uncommon: 1.5,
-        rare: 2,
-        epic: 2.5,
-        legendary: 3,
-        mythic: 4
+    }
     };
 
-    const multiplier = item.rarity ? rarityMultipliers[item.rarity] : 1;
-
-    switch (item.type) {
-        case 'health_potion':
-            playerUsingItem.health = Math.min(playerUsingItem.maxHealth, playerUsingItem.health + (50 * multiplier));
-            break;
-        case 'speed_boost':
-            playerUsingItem.speed_boost = true;
-            socket.emit('speedBoostActive', socket.id);
-            setTimeout(() => {
-                if (players[socket.id]) {
-                    players[socket.id].speed_boost = false;
-                }
-            }, 5000 * multiplier);
-            break;
-        case 'shield':
-            playerUsingItem.isInvulnerable = true;
-            setTimeout(() => {
-                if (players[socket.id]) {
-                    players[socket.id].isInvulnerable = false;
-                }
-            }, 3000 * multiplier);
-            break;
+    // Start enemy movement interval
+    setInterval(() => {
+    try {
+    moveEnemies();
+    } catch (error) {
+    console.error('Error in moveEnemies interval:', error);
     }
-
-    // Add cooldown
-    item.onCooldown = true;
-    setTimeout(() => {
-        if (playerUsingItem.loadout[loadoutSlot] === item) {
-            item.onCooldown = false;
-            socket.emit('itemCooldownComplete', { 
-                playerId: socket.id, 
-                itemId: item.id 
-            });
-        }
-    }, 10000 * (1 / multiplier));  // 10 second base cooldown, reduced by rarity
-
-    socket.emit('itemUsed', { 
-        playerId: socket.id, 
-        itemId: item.id,
-        type: item.type,
-        rarity: item.rarity
-    });
-    break;
-case 'requestRespawn':
-    var deadPlayer = players[socket.id];
-    if (deadPlayer) {
-        respawnPlayer(deadPlayer);
-    }
-    break;
-case 'updateLoadout':
-    var player = players[socket.id];
-    if (player) {
-        player.loadout = data.loadout;
-        player.inventory = data.inventory;
-        socket.emit('playerUpdated', player);
-    }
-    break;
-// ... (handle other socket events)
-}
-break;
-}
-};
-
-// Start enemy movement interval
-setInterval(() => {
-try {
-moveEnemies();
-} catch (error) {
-console.error('Error in moveEnemies interval:', error);
-}
-}, 100);
+    }, 100);
 
 // Update the item effects based on rarity
 function applyItemEffect(player, item) {
