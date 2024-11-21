@@ -10,11 +10,12 @@ import {
 import { Enemy, Obstacle, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand } from './server_utils';
 import { Item } from './item';
 import { ServerPlayer } from './player';
+import { SignalingServer } from './signaling';
 
 // Custom WebSocket connection interface
 interface GameConnection {
     id: string;
-    socket: WebSocket;
+    peerId: string;
     userId?: string;
     username?: string;
 }
@@ -25,7 +26,7 @@ class GameServer {
     private decorations: Decoration[] = [];
     private sands: Sand[] = [];
     private ENEMY_COUNT = 200;
-    private wsServer: WebSocket | null = null;
+    private signalingServer: SignalingServer | null = null;
 
     constructor() {
         this.initializeGameState();
@@ -58,21 +59,16 @@ class GameServer {
         if (this.isRunning) return;
         
         try {
-            // Create WebSocket server
-            this.wsServer = new WebSocket('ws://localhost:3000');
+            this.signalingServer = new SignalingServer();
             
-            this.wsServer.onopen = () => {
-                this.isRunning = true;
-                this.startGameLoops();
-                this.postMessage('status', { online: true });
-                this.postMessage('log', 'Server started successfully');
-            };
+            this.signalingServer.onMessage((message) => {
+                this.handleMessage(message);
+            });
 
-            this.wsServer.onclose = () => {
-                this.stop();
-            };
-
-            this.wsServer.onmessage = this.handleMessage.bind(this);
+            this.isRunning = true;
+            this.startGameLoops();
+            this.postMessage('status', { online: true });
+            this.postMessage('log', 'Server started successfully');
 
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -80,10 +76,8 @@ class GameServer {
         }
     }
 
-    private handleMessage(event: MessageEvent) {
+    private handleMessage(message: any) {
         try {
-            const message = JSON.parse(event.data);
-            
             switch (message.type) {
                 case 'authenticate':
                     this.handleAuthentication(message.data);
@@ -99,13 +93,18 @@ class GameServer {
     }
 
     private handleAuthentication(data: any) {
-        // Authentication logic here
         const connection: GameConnection = {
             id: Math.random().toString(36).substr(2, 9),
-            socket: this.wsServer!,
+            peerId: data.userId,
             userId: data.userId,
             username: data.username
         };
+
+        // Verify that we have an active peer connection
+        if (!this.signalingServer?.isConnected(connection.peerId)) {
+            this.postMessage('log', `Failed to authenticate user ${connection.username}: No peer connection`);
+            return;
+        }
 
         this.connections.set(connection.id, connection);
         
@@ -130,6 +129,23 @@ class GameServer {
             xpToNextLevel: this.calculateXPRequirement(1)
         };
 
+        // Send individual message to the newly connected player
+        this.signalingServer?.sendToPeer(connection.peerId, {
+            type: 'authenticated',
+            data: {
+                playerId: connection.id,
+                gameState: {
+                    players,
+                    enemies,
+                    items,
+                    obstacles,
+                    decorations: this.decorations,
+                    sands: this.sands
+                }
+            }
+        });
+
+        // Broadcast new player to others
         this.broadcast({
             type: 'playerJoined',
             data: players[connection.id]
@@ -137,22 +153,16 @@ class GameServer {
     }
 
     private broadcast(message: any) {
-        if (!this.wsServer || this.wsServer.readyState !== WebSocket.OPEN) return;
-        
-        const messageStr = JSON.stringify(message);
-        this.wsServer.send(messageStr);
+        if (!this.signalingServer) return;
+        this.signalingServer.broadcast(message);
     }
 
     stop() {
         if (!this.isRunning) return;
         
-        if (this.wsServer) {
-            this.wsServer.close();
-            this.wsServer = null;
-        }
-        
         this.connections.clear();
         this.isRunning = false;
+        this.signalingServer = null;
         this.postMessage('status', { online: false });
         this.postMessage('log', 'Server stopped');
     }
