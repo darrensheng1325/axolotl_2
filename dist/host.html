@@ -39,10 +39,27 @@
             margin-top: 20px;
             font-family: monospace;
         }
+        #connectionInfo {
+            font-size: 18px;
+            margin: 20px 0;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .copy-button {
+            margin-left: 10px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
     <h1>Game Host</h1>
+    <div id="connectionInfo">
+        Server Address: <span id="serverAddress">Initializing...</span>
+        <button class="copy-button" onclick="copyAddress()">Copy</button>
+    </div>
     <div id="status" class="offline">Status: Offline</div>
     <div id="controls">
         <button onclick="startServer()">Start Server</button>
@@ -61,6 +78,14 @@
         const status = document.getElementById('status');
         const playerCount = document.getElementById('playerCount');
         const enemyCount = document.getElementById('enemyCount');
+        const serverAddress = document.getElementById('serverAddress');
+
+        function copyAddress() {
+            const address = serverAddress.textContent;
+            navigator.clipboard.writeText(address).then(() => {
+                alert('Server address copied to clipboard!');
+            });
+        }
 
         function updateStatus(isOnline) {
             status.textContent = `Status: ${isOnline ? 'Online' : 'Offline'}`;
@@ -95,6 +120,9 @@
                         case 'stats':
                             playerCount.textContent = data.players;
                             enemyCount.textContent = data.enemies;
+                            break;
+                        case 'address':
+                            serverAddress.textContent = data.address;
                             break;
                         default:
                             logMessage(JSON.stringify(e.data));

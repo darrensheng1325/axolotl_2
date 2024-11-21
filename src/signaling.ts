@@ -9,55 +9,42 @@ export class SignalingServer {
     private connections: Map<string, RTCPeerConnection> = new Map();
     private dataChannels: Map<string, RTCDataChannel> = new Map();
     private onMessageCallback: ((message: any) => void) | null = null;
+    private connectionCode: string;
 
     constructor() {
+        // Generate a unique connection code
+        this.connectionCode = Math.random().toString(36).substr(2, 6).toUpperCase();
         this.setupHostPeer();
     }
 
-    public isConnected(peerId: string): boolean {
-        const channel = this.dataChannels.get(peerId);
-        return channel?.readyState === 'open';
-    }
+    private setupHostPeer() {
+        // Create a BroadcastChannel for local discovery
+        const channel = new BroadcastChannel(`game-${this.connectionCode}`);
+        
+        channel.onmessage = async (event) => {
+            const message = event.data;
+            if (message.type === 'join-request') {
+                const peerConnection = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
 
-    public sendToPeer(peerId: string, message: any): boolean {
-        const channel = this.dataChannels.get(peerId);
-        if (channel?.readyState === 'open') {
-            channel.send(JSON.stringify(message));
-            return true;
-        }
-        return false;
-    }
-
-    private async setupHostPeer() {
-        const configuration = { 
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-            ]
-        };
-
-        // Create WebSocket server for initial signaling
-        const ws = new WebSocket('ws://localhost:3000');
-
-        ws.onmessage = async (event) => {
-            const message: SignalingMessage = JSON.parse(event.data);
-            
-            if (message.type === 'offer') {
-                const peerConnection = new RTCPeerConnection(configuration);
                 this.setupPeerConnection(peerConnection, message.sender);
-                
-                // Set the remote description from the offer
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(message.data));
-                
-                // Create and send answer
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                
-                ws.send(JSON.stringify({
-                    type: 'answer',
+
+                // Create and send offer
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                channel.postMessage({
+                    type: 'offer',
                     sender: 'host',
                     receiver: message.sender,
-                    data: answer
-                }));
+                    data: offer
+                });
+            } else if (message.type === 'answer' && message.receiver === 'host') {
+                const peerConnection = this.connections.get(message.sender);
+                if (peerConnection) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.data));
+                }
             } else if (message.type === 'ice-candidate' && message.receiver === 'host') {
                 const peerConnection = this.connections.get(message.sender);
                 if (peerConnection) {
@@ -65,6 +52,12 @@ export class SignalingServer {
                 }
             }
         };
+
+        // Post the connection code to the worker
+        self.postMessage({ 
+            type: 'connection-code', 
+            data: { code: this.connectionCode } 
+        });
     }
 
     private setupPeerConnection(peerConnection: RTCPeerConnection, peerId: string) {
@@ -76,7 +69,8 @@ export class SignalingServer {
 
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
-                this.sendSignalingMessage({
+                const channel = new BroadcastChannel(`game-${this.connectionCode}`);
+                channel.postMessage({
                     type: 'ice-candidate',
                     sender: 'host',
                     receiver: peerId,
@@ -101,13 +95,35 @@ export class SignalingServer {
 
         dataChannel.onopen = () => {
             console.log(`Data channel opened with peer ${peerId}`);
+            self.postMessage({ 
+                type: 'peer-connected', 
+                data: { peerId } 
+            });
         };
 
         dataChannel.onclose = () => {
             console.log(`Data channel closed with peer ${peerId}`);
             this.connections.delete(peerId);
             this.dataChannels.delete(peerId);
+            self.postMessage({ 
+                type: 'peer-disconnected', 
+                data: { peerId } 
+            });
         };
+    }
+
+    public isConnected(peerId: string): boolean {
+        const channel = this.dataChannels.get(peerId);
+        return channel?.readyState === 'open';
+    }
+
+    public sendToPeer(peerId: string, message: any): boolean {
+        const channel = this.dataChannels.get(peerId);
+        if (channel?.readyState === 'open') {
+            channel.send(JSON.stringify(message));
+            return true;
+        }
+        return false;
     }
 
     public broadcast(message: any) {
@@ -123,15 +139,15 @@ export class SignalingServer {
         this.onMessageCallback = callback;
     }
 
-    public getConnectedPeers(): string[] {
-        return Array.from(this.dataChannels.entries())
-            .filter(([_, channel]) => channel.readyState === 'open')
-            .map(([peerId]) => peerId);
+    public getConnectionCode(): string {
+        return this.connectionCode;
     }
 
-    private sendSignalingMessage(message: SignalingMessage) {
-        // Send through WebSocket for signaling
-        const ws = new WebSocket('ws://localhost:3000');
-        ws.send(JSON.stringify(message));
+    public cleanup() {
+        this.connections.forEach(conn => conn.close());
+        this.connections.clear();
+        this.dataChannels.clear();
+        const channel = new BroadcastChannel(`game-${this.connectionCode}`);
+        channel.close();
     }
 } 
