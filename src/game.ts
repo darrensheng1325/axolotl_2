@@ -170,6 +170,8 @@ export class Game {
   private craftingPanel: HTMLDivElement | null = null;
   private craftingSlots: CraftingSlot[] = Array(4).fill(null).map((_, i) => ({ index: i, item: null }));
   private isCraftingOpen: boolean = false;
+  // Add to class properties at the top
+  private connectionModal: HTMLDivElement | null = null;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -184,14 +186,14 @@ export class Game {
       
       this.isSinglePlayer = isSinglePlayer;
 
-      // Initialize sprites with CORS settings and wait for them to load
+      // Initialize sprites but don't start game loop
       Promise.all([
           this.initializeSprites(),
           this.setupItemSprites()
       ]).then(() => {
           console.log('All sprites loaded successfully');
           this.updateColorPreview();
-          this.gameLoop();
+          // Remove gameLoop() call from here
       }).catch(console.error);
 
       // Create and set up preview canvas
@@ -383,6 +385,9 @@ export class Game {
 
       // Add to constructor after other UI initialization
       this.initializeCrafting();
+
+      // Load saved server IP
+      this.loadServerIP();
   }
 
   private async initializeSprites(): Promise<void> {
@@ -419,6 +424,14 @@ export class Game {
 }
 
   private authenticate() {
+      if (!this.socket) {
+          console.error('Cannot authenticate: Socket not initialized');
+          return;
+      }
+
+      // Save server IP when authenticating
+      this.saveServerIP();
+      
       // Get credentials from AuthUI or localStorage
       const credentials = {
           username: localStorage.getItem('username') || 'player1',
@@ -452,8 +465,6 @@ export class Game {
   private initSinglePlayerMode() {
       console.log('Initializing single player mode');
       try {
-          // Create inline worker with the worker code
-
           // Create worker from blob
           this.worker = new Worker(URL.createObjectURL(workerBlob));
           
@@ -490,8 +501,6 @@ export class Game {
           // Handle worker messages
           this.worker.onmessage = (event) => {
               const { type, event: socketEvent, data } = event.data;
-              //console.log('Received message from worker:', type, socketEvent, data);
-              
               if (type === 'socketEvent') {
                   const handler = this.socketHandlers.get(socketEvent);
                   if (handler) {
@@ -500,38 +509,27 @@ export class Game {
               }
           };
 
-          // Initialize game
-          console.log('Sending init message to worker with saved progress');
+          // Initialize worker
           this.worker.postMessage({
-            type: 'init',
-            savedProgress: {
-                level: savedProgress['level'],
-                xp: savedProgress['xp'],
-                maxHealth: savedProgress['maxHealth'],
-                damage: savedProgress['damage']
-            }
-        });
+              type: 'init',
+              savedProgress: {
+                  level: savedProgress['level'],
+                  xp: savedProgress['xp'],
+                  maxHealth: savedProgress['maxHealth'],
+                  damage: savedProgress['damage']
+              }
+          });
+
+          // Initialize game
+          this.initializeGame();
 
       } catch (error) {
           console.error('Error initializing worker:', error);
       }
-
-      this.showExitButton();
   }
 
   private initMultiPlayerMode() {
-      this.socket = io(prompt("Enter the server URL eg https://localhost:3000: \n Join a public server: https://54.151.123.177:3000/") || "", { 
-          secure: true,
-          rejectUnauthorized: false,
-          withCredentials: true
-      });
-
-      this.socket.on('connect', () => {
-          this.hideTitleScreen();
-          this.showExitButton();
-      });
-
-      this.setupSocketListeners();
+      this.showConnectionModal();
   }
 
   private setupSocketListeners() {
@@ -3054,4 +3052,184 @@ export class Game {
           }
       });
   }
+
+  // Add a method to save the server IP
+  private saveServerIP() {
+      const serverIPInput = document.getElementById('serverIP') as HTMLInputElement;
+      if (serverIPInput?.value) {
+          localStorage.setItem('lastServerIP', serverIPInput.value);
+      }
+  }
+
+  // Add a method to load the saved server IP
+  private loadServerIP() {
+      const savedIP = localStorage.getItem('lastServerIP');
+      if (savedIP) {
+          const serverIPInputs = document.querySelectorAll('#serverIP') as NodeListOf<HTMLInputElement>;
+          serverIPInputs.forEach(input => {
+              input.value = savedIP;
+          });
+      }
+  }
+
+  // Add this new method to create the connection modal
+  private createConnectionModal() {
+      // Create modal container
+      this.connectionModal = document.createElement('div');
+      this.connectionModal.style.cssText = `
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: rgba(0, 0, 0, 0.9);
+          padding: 20px;
+          border-radius: 10px;
+          border: 2px solid #666;
+          z-index: 3001;
+          color: white;
+          font-family: Arial, sans-serif;
+          min-width: 300px;
+      `;
+
+      // Create modal content
+      const content = document.createElement('div');
+      content.innerHTML = `
+          <h2 style="margin-bottom: 20px; color: #4CAF50;">Connect to Server</h2>
+          <div style="margin-bottom: 15px;">
+              <input type="text" id="serverUrlInput" placeholder="Enter server URL" 
+                     value="https://localhost:3000" style="
+                  width: 100%;
+                  padding: 8px;
+                  margin-bottom: 10px;
+                  border: 1px solid #666;
+                  border-radius: 4px;
+                  background: rgba(255, 255, 255, 0.1);
+                  color: white;
+              ">
+              <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                  Example: https://localhost:3000 or https://54.151.123.177:3000
+              </div>
+          </div>
+          <div style="display: flex; gap: 10px; justify-content: flex-end;">
+              <button id="cancelConnection" style="
+                  padding: 8px 16px;
+                  border: none;
+                  border-radius: 4px;
+                  background: #666;
+                  color: white;
+                  cursor: pointer;
+              ">Cancel</button>
+              <button id="connectServer" style="
+                  padding: 8px 16px;
+                  border: none;
+                  border-radius: 4px;
+                  background: #4CAF50;
+                  color: white;
+                  cursor: pointer;
+              ">Connect</button>
+          </div>
+      `;
+
+      this.connectionModal.appendChild(content);
+
+      // Add event listeners
+      const connectButton = this.connectionModal.querySelector('#connectServer');
+      const cancelButton = this.connectionModal.querySelector('#cancelConnection');
+      const urlInput = this.connectionModal.querySelector('#serverUrlInput') as HTMLInputElement;
+
+      connectButton?.addEventListener('click', () => {
+          const serverUrl = urlInput.value.trim();
+          if (serverUrl) {
+              this.hideConnectionModal();
+              this.connectToServer(serverUrl);
+          }
+      });
+
+      cancelButton?.addEventListener('click', () => {
+          this.hideConnectionModal();
+      });
+
+      // Load saved server IP if available
+      const savedIP = localStorage.getItem('lastServerIP');
+      if (savedIP && urlInput) {
+          urlInput.value = savedIP;
+      }
+
+      document.body.appendChild(this.connectionModal);
+  }
+
+  // Add method to show modal
+  private showConnectionModal() {
+      if (!this.connectionModal) {
+          this.createConnectionModal();
+      }
+      if (this.connectionModal) {
+          this.connectionModal.style.display = 'block';
+      }
+  }
+
+  // Add method to hide modal
+  private hideConnectionModal() {
+      if (this.connectionModal) {
+          this.connectionModal.style.display = 'none';
+      }
+  }
+
+  // Add method to handle server connection
+  private connectToServer(serverUrl: string) {
+      try {
+          // Initialize socket
+          this.socket = io(serverUrl, { 
+              secure: true,
+              rejectUnauthorized: false,
+              withCredentials: true
+          });
+
+          // Set up connection handlers
+          this.socket.on('connect', () => {
+              console.log('Connected to server');
+              
+              // Set up all socket listeners
+              this.setupSocketListeners();
+              
+              // Authenticate after connection
+              this.authenticate();
+              
+              // Save server URL
+              localStorage.setItem('lastServerIP', serverUrl);
+              
+              // Initialize game after successful connection
+              this.initializeGame();
+          });
+
+          this.socket.on('connect_error', (error) => {
+              console.error('Connection error:', error);
+              alert('Failed to connect to server. Please check the URL and try again.');
+              this.socket?.disconnect();
+          });
+
+      } catch (error) {
+          console.error('Error connecting to server:', error);
+          alert('Failed to connect to server. Please try again.');
+      }
+  }
+
+  // Add new method to initialize game
+  private initializeGame() {
+      // Hide title screen and show game UI
+      this.hideTitleScreen();
+      this.showExitButton();
+      
+      // Start game loop if not already running
+      if (!this.gameLoopId) {
+          this.gameLoop();
+      }
+      
+      // Initialize chat for multiplayer
+      if (!this.isSinglePlayer) {
+          this.initializeChat();
+      }
+  }
+
+  // Update initMultiPlayerMode to only show connection modal
 }

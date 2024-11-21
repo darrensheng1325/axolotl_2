@@ -3,16 +3,8 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const webpack = require('webpack');
 const NodePolyfillPlugin = require('node-polyfill-webpack-plugin');
 
-module.exports = {
-    entry: {
-        game: './src/index.ts',
-        server_worker: './src/server_host.ts'
-    },
-    target: 'webworker',
-    output: {
-        filename: '[name].js',
-        path: path.resolve(__dirname, 'dist'),
-    },
+// Common configuration
+const commonConfig = {
     module: {
         rules: [
             {
@@ -44,7 +36,21 @@ module.exports = {
         new webpack.ProvidePlugin({
             Buffer: ['buffer', 'Buffer'],
             process: 'process/browser'
-        }),
+        })
+    ],
+};
+
+// Client configuration
+const clientConfig = {
+    ...commonConfig,
+    entry: './src/index.ts',
+    target: 'web',
+    output: {
+        filename: 'bundle.js',
+        path: path.resolve(__dirname, 'dist'),
+    },
+    plugins: [
+        ...commonConfig.plugins,
         new CopyWebpackPlugin({
             patterns: [
                 { from: 'src/index.html', to: 'index.html' },
@@ -55,3 +61,16 @@ module.exports = {
         }),
     ],
 };
+
+// Worker configuration
+const workerConfig = {
+    ...commonConfig,
+    entry: './src/server_host.ts',
+    target: 'webworker',
+    output: {
+        filename: 'server_worker.js',
+        path: path.resolve(__dirname, 'dist'),
+    },
+};
+
+module.exports = [clientConfig, workerConfig];
