@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import { Item } from './item';
 import { workerBlob } from './workerblob';
 import { IMAGE_ASSETS } from './imageAssets';
+import { SignalingClient } from './signaling';
 
 // Add these interfaces at the top of the file
 interface SandboxedScript {
@@ -172,6 +173,8 @@ export class Game {
   private isCraftingOpen: boolean = false;
   // Add to class properties at the top
   private connectionModal: HTMLDivElement | null = null;
+  private signalingClient: SignalingClient | null = null;
+  private isWebRTCMode: boolean = false;
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -1654,6 +1657,12 @@ export class Game {
       this.chatContainer = null;
       this.chatInput = null;
       this.chatMessages = null;
+
+      // Clean up WebRTC connection
+      if (this.signalingClient) {
+          this.signalingClient.close();
+          this.signalingClient = null;
+      }
   }
 
   private loadPlayerProgress(): { level: number; xp: number; maxHealth: number; damage: number } {
@@ -3096,6 +3105,18 @@ export class Game {
       content.innerHTML = `
           <h2 style="margin-bottom: 20px; color: #4CAF50;">Connect to Server</h2>
           <div style="margin-bottom: 15px;">
+              <select id="connectionType" style="
+                  width: 100%;
+                  padding: 8px;
+                  margin-bottom: 10px;
+                  border: 1px solid #666;
+                  border-radius: 4px;
+                  background: rgba(255, 255, 255, 0.1);
+                  color: white;
+              ">
+                  <option value="socket">Socket.IO Server</option>
+                  <option value="webrtc">Self-Hosted Server</option>
+              </select>
               <input type="text" id="serverUrlInput" placeholder="Enter server URL" 
                      value="https://localhost:3000" style="
                   width: 100%;
@@ -3107,7 +3128,9 @@ export class Game {
                   color: white;
               ">
               <div style="font-size: 12px; color: #999; margin-top: 5px;">
-                  Example: https://localhost:3000 or https://54.151.123.177:3000
+                  Socket.IO Example: https://localhost:3000
+                  <br>
+                  Self-Hosted Example: wss://localhost:8080
               </div>
           </div>
           <div style="display: flex; gap: 10px; justify-content: flex-end;">
@@ -3136,11 +3159,24 @@ export class Game {
       const connectButton = this.connectionModal.querySelector('#connectServer');
       const cancelButton = this.connectionModal.querySelector('#cancelConnection');
       const urlInput = this.connectionModal.querySelector('#serverUrlInput') as HTMLInputElement;
+      const connectionType = this.connectionModal.querySelector('#connectionType') as HTMLSelectElement;
+
+      // Update connection type change handler
+      connectionType?.addEventListener('change', () => {
+          const isWebRTC = connectionType.value === 'webrtc';
+          urlInput.placeholder = isWebRTC ? 
+              "Enter WebRTC server address" : 
+              "Enter Socket.IO server URL";
+          urlInput.value = isWebRTC ? 
+              "wss://localhost:8080" : 
+              "https://localhost:3000";
+      });
 
       connectButton?.addEventListener('click', () => {
           const serverUrl = urlInput.value.trim();
           if (serverUrl) {
               this.hideConnectionModal();
+              this.isWebRTCMode = connectionType.value === 'webrtc';
               this.connectToServer(serverUrl);
           }
       });
@@ -3178,36 +3214,46 @@ export class Game {
   // Add method to handle server connection
   private connectToServer(serverUrl: string) {
       try {
-          // Initialize socket
-          this.socket = io(serverUrl, { 
-              secure: true,
-              rejectUnauthorized: false,
-              withCredentials: true
-          });
+          if (this.isWebRTCMode) {
+              // Connect using WebRTC
+              this.signalingClient = new SignalingClient(serverUrl);
+              
+              this.signalingClient.onOpen(() => {
+                  console.log('Connected to WebRTC server');
+                  this.setupWebRTCHandlers();
+                  this.authenticate();
+              });
 
-          // Set up connection handlers
-          this.socket.on('connect', () => {
-              console.log('Connected to server');
-              
-              // Set up all socket listeners
-              this.setupSocketListeners();
-              
-              // Authenticate after connection
-              this.authenticate();
-              
-              // Save server URL
-              localStorage.setItem('lastServerIP', serverUrl);
-              
-              // Initialize game after successful connection
-              this.initializeGame();
-          });
+              // Update the error handler to properly type the error
+              this.signalingClient.onError((error: Error) => {
+                  console.error('WebRTC connection error:', error);
+                  alert('Failed to connect to WebRTC server. Please check the URL and try again.');
+                  this.signalingClient?.close();
+              });
 
-          this.socket.on('connect_error', (error) => {
-              console.error('Connection error:', error);
-              alert('Failed to connect to server. Please check the URL and try again.');
-              this.socket?.disconnect();
-          });
+              this.signalingClient.connect();
+          } else {
+              // Connect using Socket.IO
+              this.socket = io(serverUrl, { 
+                  secure: true,
+                  rejectUnauthorized: false,
+                  withCredentials: true
+              });
 
+              this.socket.on('connect', () => {
+                  console.log('Connected to Socket.IO server');
+                  this.setupSocketListeners();
+                  this.authenticate();
+                  localStorage.setItem('lastServerIP', serverUrl);
+                  this.initializeGame();
+              });
+
+              this.socket.on('connect_error', (error) => {
+                  console.error('Socket.IO connection error:', error);
+                  alert('Failed to connect to server. Please check the URL and try again.');
+                  this.socket?.disconnect();
+              });
+          }
       } catch (error) {
           console.error('Error connecting to server:', error);
           alert('Failed to connect to server. Please try again.');
@@ -3231,5 +3277,70 @@ export class Game {
       }
   }
 
-  // Update initMultiPlayerMode to only show connection modal
+  // Add method to set up WebRTC handlers
+  private setupWebRTCHandlers() {
+      if (!this.signalingClient) return;
+
+      this.signalingClient.onMessage((message: any) => {
+          switch (message.type) {
+              case 'authenticated':
+                  this.handleWebRTCAuthentication(message.data);
+                  break;
+              case 'gameState':
+                  this.handleWebRTCGameState(message.data);
+                  break;
+              case 'playerJoined':
+                  this.handleWebRTCPlayerJoined(message.data);
+                  break;
+              // Add other message handlers as needed
+          }
+      });
+  }
+
+  // Add WebRTC message handlers
+  private handleWebRTCAuthentication(data: any) {
+      console.log('WebRTC authentication successful');
+      if (data.playerId) {
+          this.socket = {
+              id: data.playerId,
+              emit: (event: string, data: any) => {
+                  this.signalingClient?.send({
+                      type: event,
+                      data: data
+                  });
+              },
+              on: () => {} // Stub for compatibility
+          } as any;
+
+          // Initialize game state
+          if (data.gameState) {
+              this.players = new Map(Object.entries(data.gameState.players));
+              this.enemies = new Map(Object.entries(data.gameState.enemies));
+              this.items = data.gameState.items;
+              this.obstacles = data.gameState.obstacles;
+              this.decorations = data.gameState.decorations;
+              this.sands = data.gameState.sands;
+          }
+
+          this.initializeGame();
+      }
+  }
+
+  private handleWebRTCGameState(data: any) {
+      // Update game state from WebRTC server
+      this.players = new Map(Object.entries(data.players));
+      this.enemies = new Map(Object.entries(data.enemies));
+      this.items = data.items;
+  }
+
+  private handleWebRTCPlayerJoined(player: any) {
+      this.players.set(player.id, {
+          ...player,
+          imageLoaded: true,
+          score: 0,
+          velocityX: 0,
+          velocityY: 0,
+          health: this.PLAYER_MAX_HEALTH
+      });
+  }
 }

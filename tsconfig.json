@@ -6,6 +6,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "lib": [
+      "dom",
+      "es2015",
+      "webworker"
+    ],
     "outDir": "./dist",
     "rootDir": "./src",
     "moduleResolution": "node"
