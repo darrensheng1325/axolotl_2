@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Server Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .log {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+            font-family: monospace;
+            background: #f8f9fa;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .sent {
+            background: #e8f5e9;
+        }
+        .received {
+            background: #e3f2fd;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .controls {
+            margin: 10px 0;
+        }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px;
+            width: 200px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Server Test</h1>
+    
+    <div class="status disconnected" id="status">Status: Disconnected</div>
+    
+    <div class="controls">
+        <input type="text" id="serverUrl" value="ws://localhost:8080" placeholder="WebSocket URL">
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <h2>Send Message</h2>
+            <div>
+                <select id="messageType">
+                    <option value="connect">Connect</option>
+                    <option value="authenticate">Authenticate</option>
+                    <option value="playerMovement">Player Movement</option>
+                    <option value="debug_ping">Debug Ping</option>
+                </select>
+                <button onclick="sendTestMessage()">Send</button>
+            </div>
+            <div id="messageParams"></div>
+            <h3>Message Templates</h3>
+            <div id="messageTemplates" class="log"></div>
+        </div>
+
+        <div class="panel">
+            <h2>Message Log</h2>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let clientId = null;
+        const log = document.getElementById('log');
+        const status = document.getElementById('status');
+        const messageType = document.getElementById('messageType');
+        const messageParams = document.getElementById('messageParams');
+        const messageTemplates = document.getElementById('messageTemplates');
+
+        const messageTypes = {
+            connect: {
+                template: {
+                    type: 'connect',
+                    clientId: 'generated-on-connect'
+                }
+            },
+            authenticate: {
+                template: {
+                    type: 'authenticate',
+                    data: {
+                        username: 'testUser',
+                        password: 'testPass',
+                        playerName: 'TestPlayer'
+                    }
+                }
+            },
+            playerMovement: {
+                template: {
+                    type: 'playerMovement',
+                    data: {
+                        x: 100,
+                        y: 100,
+                        angle: 0,
+                        velocityX: 0,
+                        velocityY: 0
+                    }
+                }
+            },
+            debug_ping: {
+                template: {
+                    type: 'debug_ping',
+                    data: {
+                        timestamp: Date.now()
+                    }
+                }
+            }
+        };
+
+        function updateMessageParams() {
+            const type = messageType.value;
+            const template = messageTypes[type].template;
+            messageParams.innerHTML = `
+                <pre>${JSON.stringify(template, null, 2)}</pre>
+            `;
+        }
+
+        messageType.addEventListener('change', updateMessageParams);
+        updateMessageParams();
+
+        function logMessage(msg, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `message ${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${msg}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            status.textContent = `Status: ${connected ? 'Connected' : 'Disconnected'}`;
+            status.className = `status ${connected ? 'connected' : 'disconnected'}`;
+        }
+
+        function connect() {
+            if (ws) {
+                logMessage('Already connected', 'error');
+                return;
+            }
+
+            const url = document.getElementById('serverUrl').value;
+            try {
+                ws = new WebSocket(url);
+                
+                ws.onopen = () => {
+                    updateStatus(true);
+                    logMessage('Connected to server');
+                    clientId = `test_${Math.random().toString(36).substr(2, 9)}`;
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        logMessage(`Received: ${JSON.stringify(message, null, 2)}`, 'received');
+                    } catch (error) {
+                        logMessage(`Error parsing message: ${error}`, 'error');
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    logMessage(`WebSocket error: ${error}`, 'error');
+                };
+
+                ws.onclose = () => {
+                    updateStatus(false);
+                    logMessage('Disconnected from server');
+                    ws = null;
+                };
+
+            } catch (error) {
+                logMessage(`Connection error: ${error}`, 'error');
+            }
+        }
+
+        function disconnect() {
+            if (!ws) {
+                logMessage('Not connected', 'error');
+                return;
+            }
+            ws.close();
+        }
+
+        function sendTestMessage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                logMessage('Not connected to server', 'error');
+                return;
+            }
+
+            const type = messageType.value;
+            const template = JSON.parse(JSON.stringify(messageTypes[type].template));
+            
+            if (type === 'connect') {
+                template.clientId = clientId;
+            }
+
+            try {
+                const messageStr = JSON.stringify(template);
+                ws.send(messageStr);
+                logMessage(`Sent: ${messageStr}`, 'sent');
+            } catch (error) {
+                logMessage(`Error sending message: ${error}`, 'error');
+            }
+        }
+
+        function clearLog() {
+            log.innerHTML = '';
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html> 

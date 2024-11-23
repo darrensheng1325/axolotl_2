@@ -59,13 +59,20 @@ const clientConfig = {
                 { from: 'src/index.html', to: 'index.html' },
                 { from: 'host.html', to: 'host.html' },
                 { from: 'src/styles.css', to: 'styles.css' },
-                { from: 'assets', to: 'assets' }
+                { from: 'assets', to: 'assets' },
+                { 
+                    from: 'wasm/server.wasm.js',
+                    to: 'server.wasm.js',
+                    noErrorOnMissing: true
+                },
+                {
+                    from: 'wasm/server.wasm',
+                    to: 'server.wasm',
+                    noErrorOnMissing: true
+                }
             ],
         }),
     ],
-    optimization: {
-        minimize: false
-    },
 };
 
 // Worker configuration
@@ -76,9 +83,6 @@ const workerConfig = {
     output: {
         filename: 'server_worker.js',
         path: path.resolve(__dirname, 'dist'),
-    },
-    optimization: {
-        minimize: false
     },
 };
 

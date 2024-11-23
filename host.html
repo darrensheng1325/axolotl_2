@@ -4,6 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Game Host</title>
+    <script>
+        var Module = {
+            preRun: [],
+            postRun: [],
+            print: function(text) {
+                console.log('stdout:', text);
+            },
+            printErr: function(text) {
+                console.error('stderr:', text);
+            },
+            onRuntimeInitialized: function() {
+                console.log('WebAssembly runtime initialized');
+                if (window.moduleLoaded) {
+                    window.moduleLoaded(Module);
+                }
+            },
+            onAbort: function(what) {
+                console.error('WebAssembly aborted:', what);
+                if (window.moduleError) {
+                    window.moduleError(what);
+                }
+            }
+        };
+    </script>
+    <!-- Change to use the bundled version -->
+    <script src="server.wasm.bundle.js"></script>
+</head>
+<body>
+    <h1>Game Host</h1>
+    
+    <div class="server-config">
+        <label for="serverPort">Server Port:</label>
+        <input type="number" id="serverPort" value="8080" min="1" max="65535">
+        <button onclick="updatePort()">Update Port</button>
+    </div>
+    
+    <div id="connectionInfo">
+        Server Address: <span id="serverAddress">Not started</span>
+        <button class="copy-button" onclick="copyAddress()">Copy</button>
+    </div>
+    
+    <div id="status" class="offline">Status: Offline</div>
+    
+    <div id="controls">
+        <button onclick="startServer()">Start Server</button>
+        <button onclick="stopServer()">Stop Server</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <div id="stats">
+        <p>Connected Players: <span id="playerCount">0</span></p>
+        <p>Active Enemies: <span id="enemyCount">0</span></p>
+    </div>
+    
+    <div id="log"></div>
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -30,6 +86,7 @@
         button {
             padding: 8px 16px;
             margin-right: 10px;
+            cursor: pointer;
         }
         #log {
             height: 300px;
@@ -38,6 +95,7 @@
             padding: 10px;
             margin-top: 20px;
             font-family: monospace;
+            background: #f8f9fa;
         }
         #connectionInfo {
             font-size: 18px;
@@ -58,7 +116,6 @@
             border-radius: 4px;
             margin: 20px 0;
         }
-        
         .server-config input {
             padding: 8px;
             margin-right: 10px;
@@ -66,47 +123,195 @@
             border: 1px solid #ced4da;
             border-radius: 4px;
         }
-        
         .server-config label {
             margin-right: 10px;
             font-weight: bold;
         }
     </style>
-</head>
-<body>
-    <h1>Game Host</h1>
-    
-    <div class="server-config">
-        <label for="serverPort">Server Port:</label>
-        <input type="number" id="serverPort" value="8080" min="1" max="65535">
-        <button onclick="updatePort()">Update Port</button>
-    </div>
-    
-    <div id="connectionInfo">
-        Server Address: <span id="serverAddress">Not started</span>
-        <button class="copy-button" onclick="copyAddress()">Copy</button>
-    </div>
-    <div id="status" class="offline">Status: Offline</div>
-    <div id="controls">
-        <button onclick="startServer()">Start Server</button>
-        <button onclick="stopServer()">Stop Server</button>
-        <button onclick="clearLog()">Clear Log</button>
-    </div>
-    <div id="stats">
-        <p>Connected Players: <span id="playerCount">0</span></p>
-        <p>Active Enemies: <span id="enemyCount">0</span></p>
-    </div>
-    <div id="log"></div>
 
     <script>
-        let worker = null;
-        const log = document.getElementById('log');
-        const status = document.getElementById('status');
-        const playerCount = document.getElementById('playerCount');
-        const enemyCount = document.getElementById('enemyCount');
-        const serverAddress = document.getElementById('serverAddress');
-        let serverPorts = new Map();
-        const serverPort = document.getElementById('serverPort');
+        // Initialize variables
+        let log, status, playerCount, enemyCount, serverAddress, serverPort, gameServer;
+        let wasmModule = null;
+
+        // Update the WebAssembly initialization function
+        async function initializeWasm() {
+            try {
+                // Create a new promise for module loading
+                const moduleLoadedPromise = new Promise((resolve, reject) => {
+                    if (Module.ready) {
+                        resolve(Module);
+                        return;
+                    }
+
+                    // Check if runtime is already initialized
+                    if (Module.calledRun) {
+                        Module.ready = true;
+                        resolve(Module);
+                        return;
+                    }
+
+                    // Set up handlers
+                    window.moduleLoaded = (module) => {
+                        module.ready = true;
+                        resolve(module);
+                    };
+                    
+                    window.moduleError = (error) => {
+                        reject(new Error('WebAssembly initialization failed: ' + error));
+                    };
+
+                    // Add timeout with more detailed error
+                    setTimeout(() => {
+                        const state = {
+                            moduleExists: typeof Module !== 'undefined',
+                            calledRun: Module?.calledRun,
+                            hasGameServer: Module?.GameServer ? true : false
+                        };
+                        reject(new Error('WebAssembly module load timeout. State: ' + JSON.stringify(state)));
+                    }, 15000); // Increased timeout to 15 seconds
+                });
+
+                console.log('Waiting for WebAssembly module to initialize...');
+                wasmModule = await moduleLoadedPromise;
+                
+                // Verify the module has the required exports
+                if (!wasmModule.GameServer) {
+                    throw new Error('GameServer class not found in WebAssembly module');
+                }
+
+                console.log('WebAssembly module loaded successfully');
+                logMessage('WebAssembly module initialized');
+                return true;
+
+            } catch (error) {
+                console.error('Failed to initialize WebAssembly:', error);
+                logMessage('Failed to initialize WebAssembly: ' + error.message);
+                return false;
+            }
+        }
+
+        // Update the DOMContentLoaded handler
+        document.addEventListener('DOMContentLoaded', async function() {
+            log = document.getElementById('log');
+            status = document.getElementById('status');
+            playerCount = document.getElementById('playerCount');
+            enemyCount = document.getElementById('enemyCount');
+            serverAddress = document.getElementById('serverAddress');
+            serverPort = document.getElementById('serverPort');
+            gameServer = null;
+
+            // Load saved port
+            const savedPort = localStorage.getItem('serverPort');
+            if (savedPort) {
+                serverPort.value = savedPort;
+            }
+
+            logMessage('Page loaded, initializing WebAssembly module...');
+            
+            // Add a small delay to ensure Module is defined
+            setTimeout(async () => {
+                try {
+                    const success = await initializeWasm();
+                    if (success) {
+                        logMessage('WebAssembly module ready');
+                    } else {
+                        logMessage('WebAssembly initialization failed');
+                    }
+                } catch (error) {
+                    logMessage('Failed to initialize WebAssembly: ' + error.message);
+                }
+            }, 100);
+        });
+
+        function logMessage(msg) {
+            const entry = document.createElement('div');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(isOnline) {
+            status.textContent = `Status: ${isOnline ? 'Online' : 'Offline'}`;
+            status.className = isOnline ? 'online' : 'offline';
+        }
+
+        // Update the startServer function's initialization check
+        async function startServer() {
+            try {
+                if (!wasmModule || !wasmModule.ready) {
+                    logMessage('Initializing WebAssembly module...');
+                    const success = await initializeWasm();
+                    if (!success) {
+                        logMessage('Failed to initialize WebAssembly module');
+                        return;
+                    }
+                }
+
+                if (gameServer) {
+                    logMessage('Server is already running');
+                    return;
+                }
+
+                const port = parseInt(serverPort.value);
+                if (!(port >= 1 && port <= 65535)) {
+                    logMessage('Invalid port number. Must be between 1 and 65535');
+                    return;
+                }
+
+                console.log('Creating game server on port:', port);
+                gameServer = new wasmModule.GameServer(port);
+                console.log('Starting game server...');
+                gameServer.start();
+
+                serverPort.disabled = true;
+                updateStatus(true);
+                serverAddress.textContent = `ws://${location.hostname}:${port}`;
+                logMessage(`Server started on port ${port}`);
+
+            } catch (error) {
+                logMessage(`Failed to start server: ${error.message}`);
+                console.error('Server start error:', error);
+                if (gameServer) {
+                    gameServer.delete();
+                    gameServer = null;
+                }
+            }
+        }
+
+        function stopServer() {
+            if (!gameServer) {
+                logMessage('Server is not running');
+                return;
+            }
+
+            try {
+                gameServer.stop();
+                gameServer.delete();
+                gameServer = null;
+                updateStatus(false);
+                serverAddress.textContent = 'Not started';
+                serverPort.disabled = false;
+                logMessage('Server stopped');
+            } catch (error) {
+                logMessage(`Error stopping server: ${error.message}`);
+            }
+        }
+
+        function updatePort() {
+            if (!gameServer) {
+                const port = serverPort.value;
+                if (port >= 1 && port <= 65535) {
+                    logMessage(`Port updated to: ${port}`);
+                    localStorage.setItem('serverPort', port);
+                } else {
+                    logMessage('Invalid port number. Must be between 1 and 65535');
+                    serverPort.value = localStorage.getItem('serverPort') || '8080';
+                }
+            } else {
+                logMessage('Cannot change port while server is running');
+            }
+        }
 
         function copyAddress() {
             const address = serverAddress.textContent;
@@ -121,161 +326,13 @@
             }
         }
 
-        function updateStatus(isOnline) {
-            status.textContent = `Status: ${isOnline ? 'Online' : 'Offline'}`;
-            status.className = isOnline ? 'online' : 'offline';
-        }
-
-        function logMessage(msg) {
-            const entry = document.createElement('div');
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            log.appendChild(entry);
-            log.scrollTop = log.scrollHeight;
-        }
-
-        function handleServerMessage(event) {
-            const { type, data, clientId, port } = event.data;
-            
-            switch (type) {
-                case 'server_init':
-                    // Store the server port
-                    port.onmessage = handleClientMessage;
-                    break;
-                
-                case 'client_connection':
-                    // Store client port and set up message handling
-                    serverPorts.set(clientId, port);
-                    port.onmessage = (e) => {
-                        worker.postMessage({
-                            type: 'message',
-                            clientId: clientId,
-                            data: e.data
-                        });
-                    };
-                    break;
-            }
-        }
-
-        function handleClientMessage(event) {
-            const { type, clientId, data } = event.data;
-            const clientPort = serverPorts.get(clientId);
-            if (clientPort) {
-                clientPort.postMessage(data);
-            }
-        }
-
-        function updatePort() {
-            if (!worker) {
-                const port = serverPort.value;
-                if (port >= 1 && port <= 65535) {
-                    logMessage(`Port updated to: ${port}`);
-                    localStorage.setItem('serverPort', port);
-                } else {
-                    logMessage('Invalid port number. Must be between 1 and 65535');
-                    serverPort.value = localStorage.getItem('serverPort') || '8080';
-                }
-            } else {
-                logMessage('Cannot change port while server is running');
-            }
-        }
-
-        // Load saved port on page load
-        document.addEventListener('DOMContentLoaded', () => {
-            const savedPort = localStorage.getItem('serverPort');
-            if (savedPort) {
-                serverPort.value = savedPort;
-            }
-        });
-
-        function startServer() {
-            if (worker) {
-                logMessage('Server is already running');
-                return;
-            }
-
-            try {
-                const port = parseInt(serverPort.value);
-                if (!(port >= 1 && port <= 65535)) {
-                    logMessage('Invalid port number. Must be between 1 and 65535');
-                    return;
-                }
-
-                worker = new Worker('server_worker.js');
-                worker.onmessage = function(e) {
-                    if (e.data.port) {
-                        handleServerMessage(e);
-                    } else {
-                        const { type, data } = e.data;
-                        
-                        switch(type) {
-                            case 'log':
-                                logMessage(data);
-                                break;
-                            case 'status':
-                                updateStatus(data.online);
-                                break;
-                            case 'stats':
-                                playerCount.textContent = data.players;
-                                enemyCount.textContent = data.enemies;
-                                break;
-                            case 'address':
-                                // Update address with custom port
-                                const address = data.address.replace(/:\d+$/, `:${port}`);
-                                serverAddress.textContent = address;
-                                logMessage(`Server address updated: ${address}`);
-                                break;
-                            default:
-                                logMessage(JSON.stringify(e.data));
-                        }
-                    }
-                };
-
-                worker.onerror = function(error) {
-                    logMessage(`Error: ${error.message}`);
-                    updateStatus(false);
-                };
-
-                logMessage(`Starting server on port ${port}...`);
-                worker.postMessage({ 
-                    type: 'start',
-                    data: { port: port }
-                });
-                
-                // Disable port input while server is running
-                serverPort.disabled = true;
-            } catch (error) {
-                logMessage(`Failed to start server: ${error.message}`);
-            }
-        }
-
-        function stopServer() {
-            if (!worker) {
-                logMessage('Server is not running');
-                return;
-            }
-
-            // Close all ports
-            serverPorts.forEach(port => port.close());
-            serverPorts.clear();
-
-            worker.postMessage({ type: 'stop' });
-            worker.terminate();
-            worker = null;
-            updateStatus(false);
-            serverAddress.textContent = 'Not started';
-            logMessage('Server stopped');
-            
-            // Re-enable port input
-            serverPort.disabled = false;
-        }
-
         function clearLog() {
             log.innerHTML = '';
         }
 
         // Clean up when the page is closed
         window.addEventListener('beforeunload', () => {
-            if (worker) {
+            if (gameServer) {
                 stopServer();
             }
         });

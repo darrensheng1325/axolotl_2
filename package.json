@@ -3,13 +3,16 @@
   "version": "1.0.1",
   "main": "index.js",
   "scripts": {
+    "build": "mkdir -p dist wasm && npm run build:cpp && npm run build:wasm && npm run build:client && npm run build:server",
+    "build:cpp": "emcc server.cpp -o wasm/server.wasm.js -s WASM=1 -s EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]' -s EXPORTED_FUNCTIONS='[\"_malloc\", \"_free\"]' -s NO_EXIT_RUNTIME=1 -s ALLOW_MEMORY_GROWTH=1 -s WEBSOCKET_SUBPROTOCOL='binary' -s USE_PTHREADS=0 -s MODULARIZE=1 -s ENVIRONMENT='web' -s SINGLE_FILE=0 -O3 -lembind --bind",
+    "build:wasm": "node encode-wasm.js",
     "build:client": "webpack --mode production",
     "build:server": "tsc -p tsconfig.server.json",
-    "build": "npm run build:client && npm run build:server",
     "start": "node dist/server.js",
     "dev:client": "webpack serve --mode development --https --host 0.0.0.0",
     "dev:server": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\""
+    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "build-wasm": "node encode-wasm.js"
   },
   "keywords": [],
   "author": "",
