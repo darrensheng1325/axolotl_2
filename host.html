@@ -52,10 +52,36 @@
             padding: 5px 10px;
             cursor: pointer;
         }
+        .server-config {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        
+        .server-config input {
+            padding: 8px;
+            margin-right: 10px;
+            width: 100px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+        
+        .server-config label {
+            margin-right: 10px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <h1>Game Host</h1>
+    
+    <div class="server-config">
+        <label for="serverPort">Server Port:</label>
+        <input type="number" id="serverPort" value="8080" min="1" max="65535">
+        <button onclick="updatePort()">Update Port</button>
+    </div>
+    
     <div id="connectionInfo">
         Server Address: <span id="serverAddress">Not started</span>
         <button class="copy-button" onclick="copyAddress()">Copy</button>
@@ -80,6 +106,7 @@
         const enemyCount = document.getElementById('enemyCount');
         const serverAddress = document.getElementById('serverAddress');
         let serverPorts = new Map();
+        const serverPort = document.getElementById('serverPort');
 
         function copyAddress() {
             const address = serverAddress.textContent;
@@ -137,6 +164,29 @@
             }
         }
 
+        function updatePort() {
+            if (!worker) {
+                const port = serverPort.value;
+                if (port >= 1 && port <= 65535) {
+                    logMessage(`Port updated to: ${port}`);
+                    localStorage.setItem('serverPort', port);
+                } else {
+                    logMessage('Invalid port number. Must be between 1 and 65535');
+                    serverPort.value = localStorage.getItem('serverPort') || '8080';
+                }
+            } else {
+                logMessage('Cannot change port while server is running');
+            }
+        }
+
+        // Load saved port on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedPort = localStorage.getItem('serverPort');
+            if (savedPort) {
+                serverPort.value = savedPort;
+            }
+        });
+
         function startServer() {
             if (worker) {
                 logMessage('Server is already running');
@@ -144,6 +194,12 @@
             }
 
             try {
+                const port = parseInt(serverPort.value);
+                if (!(port >= 1 && port <= 65535)) {
+                    logMessage('Invalid port number. Must be between 1 and 65535');
+                    return;
+                }
+
                 worker = new Worker('server_worker.js');
                 worker.onmessage = function(e) {
                     if (e.data.port) {
@@ -163,8 +219,10 @@
                                 enemyCount.textContent = data.enemies;
                                 break;
                             case 'address':
-                                serverAddress.textContent = data.address;
-                                logMessage(`Server address updated: ${data.address}`);
+                                // Update address with custom port
+                                const address = data.address.replace(/:\d+$/, `:${port}`);
+                                serverAddress.textContent = address;
+                                logMessage(`Server address updated: ${address}`);
                                 break;
                             default:
                                 logMessage(JSON.stringify(e.data));
@@ -177,8 +235,14 @@
                     updateStatus(false);
                 };
 
-                logMessage('Starting server...');
-                worker.postMessage({ type: 'start' });
+                logMessage(`Starting server on port ${port}...`);
+                worker.postMessage({ 
+                    type: 'start',
+                    data: { port: port }
+                });
+                
+                // Disable port input while server is running
+                serverPort.disabled = true;
             } catch (error) {
                 logMessage(`Failed to start server: ${error.message}`);
             }
@@ -200,6 +264,9 @@
             updateStatus(false);
             serverAddress.textContent = 'Not started';
             logMessage('Server stopped');
+            
+            // Re-enable port input
+            serverPort.disabled = false;
         }
 
         function clearLog() {

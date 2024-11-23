@@ -1,6 +1,6 @@
 {
   "name": "axolotl_2",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.js",
   "scripts": {
     "build:client": "webpack --mode production",
@@ -19,6 +19,7 @@
     "@types/ws": "^8.5.13",
     "better-sqlite3": "^11.5.0",
     "express": "^4.21.1",
+    "http": "^0.0.1-security",
     "socket.io": "^4.8.0",
     "sqlite3": "^5.1.7",
     "ws": "^8.18.0"

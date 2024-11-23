@@ -3220,11 +3220,31 @@ export class Game {
               
               this.signalingClient.onOpen(() => {
                   console.log('Connected to WebRTC server');
+                  
+                  // Create mock socket for compatibility
+                  this.socket = {
+                      id: null, // Will be set after authentication
+                      emit: (event: string, data: any) => {
+                          console.log('Emitting via WebRTC:', event, data);
+                          this.signalingClient?.send({
+                              type: event,
+                              data: data
+                          });
+                      },
+                      on: (event: string, handler: Function) => {
+                          console.log('Registering WebRTC handler for:', event);
+                          // Store handler to be called from setupWebRTCHandlers
+                          this.socketHandlers.set(event, handler);
+                      },
+                      disconnect: () => {
+                          this.signalingClient?.close();
+                      }
+                  } as any;
+
                   this.setupWebRTCHandlers();
                   this.authenticate();
               });
 
-              // Update the error handler to properly type the error
               this.signalingClient.onError((error: Error) => {
                   console.error('WebRTC connection error:', error);
                   alert('Failed to connect to WebRTC server. Please check the URL and try again.');
@@ -3282,6 +3302,12 @@ export class Game {
       if (!this.signalingClient) return;
 
       this.signalingClient.onMessage((message: any) => {
+          console.log('WebRTC message received:', message);
+          
+          if (message.type === 'server_message') {
+              message = message.data; // Unwrap server message
+          }
+
           switch (message.type) {
               case 'authenticated':
                   this.handleWebRTCAuthentication(message.data);

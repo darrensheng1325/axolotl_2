@@ -38,6 +38,9 @@ const commonConfig = {
             process: 'process/browser'
         })
     ],
+    optimization: {
+        minimize: false
+    },
 };
 
 // Client configuration
@@ -60,6 +63,9 @@ const clientConfig = {
             ],
         }),
     ],
+    optimization: {
+        minimize: false
+    },
 };
 
 // Worker configuration
@@ -70,6 +76,9 @@ const workerConfig = {
     output: {
         filename: 'server_worker.js',
         path: path.resolve(__dirname, 'dist'),
+    },
+    optimization: {
+        minimize: false
     },
 };
 

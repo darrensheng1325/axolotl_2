@@ -62,58 +62,82 @@ class GameServer {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(this.DB_NAME, 1);
 
-            request.onerror = () => reject(request.error);
+            request.onerror = () => {
+                console.error('Failed to open database:', request.error);
+                reject(request.error);
+            };
 
             request.onsuccess = () => {
+                console.log('Database opened successfully');
                 this.db = request.result;
                 resolve();
             };
 
             request.onupgradeneeded = (event) => {
+                console.log('Database upgrade needed');
                 const db = (event.target as IDBOpenDBRequest).result;
                 if (!db.objectStoreNames.contains(this.STORE_NAME)) {
                     db.createObjectStore(this.STORE_NAME);
+                    console.log('Created credentials store');
                 }
             };
         });
     }
 
-    private loadUserCredentials() {
-        if (!this.db) {
-            console.error('Database not initialized');
-            return;
-        }
-
-        const transaction = this.db.transaction(this.STORE_NAME, 'readonly');
-        const store = transaction.objectStore(this.STORE_NAME);
-        const request = store.get('userCredentials');
-
-        request.onsuccess = () => {
-            if (request.result) {
-                this.userCredentials = new Map(JSON.parse(request.result));
+    private loadUserCredentials(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                console.error('Database not initialized');
+                reject(new Error('Database not initialized'));
+                return;
             }
-        };
 
-        request.onerror = () => {
-            console.error('Error loading user credentials:', request.error);
-        };
+            const transaction = this.db.transaction(this.STORE_NAME, 'readonly');
+            const store = transaction.objectStore(this.STORE_NAME);
+            const request = store.get('userCredentials');
+
+            request.onsuccess = () => {
+                if (request.result) {
+                    console.log('Loaded user credentials');
+                    this.userCredentials = new Map(JSON.parse(request.result));
+                } else {
+                    console.log('No existing credentials found');
+                    this.userCredentials = new Map();
+                }
+                resolve();
+            };
+
+            request.onerror = () => {
+                console.error('Error loading user credentials:', request.error);
+                reject(request.error);
+            };
+        });
     }
 
-    private saveUserCredentials() {
-        if (!this.db) {
-            console.error('Database not initialized');
-            return;
-        }
+    private saveUserCredentials(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                console.error('Database not initialized');
+                reject(new Error('Database not initialized'));
+                return;
+            }
 
-        const transaction = this.db.transaction(this.STORE_NAME, 'readwrite');
-        const store = transaction.objectStore(this.STORE_NAME);
-        const credentials = JSON.stringify(Array.from(this.userCredentials.entries()));
-        
-        const request = store.put(credentials, 'userCredentials');
+            const transaction = this.db.transaction(this.STORE_NAME, 'readwrite');
+            const store = transaction.objectStore(this.STORE_NAME);
+            const credentials = JSON.stringify(Array.from(this.userCredentials.entries()));
+            
+            const request = store.put(credentials, 'userCredentials');
 
-        request.onerror = () => {
-            console.error('Error saving user credentials:', request.error);
-        };
+            request.onsuccess = () => {
+                console.log('User credentials saved successfully');
+                resolve();
+            };
+
+            request.onerror = () => {
+                console.error('Error saving user credentials:', request.error);
+                reject(request.error);
+            };
+        });
     }
 
     private calculateXPRequirement(level: number): number {
@@ -143,16 +167,28 @@ class GameServer {
         if (this.isRunning) return;
         
         try {
-            // Initialize SignalingServer
-            this.signalingServer = new SignalingServer();
+            // Get port from worker message
+            const port = (self as any).port;
+            if (!port) {
+                throw new Error('Port not specified');
+            }
             
-            // Get the server's WebSocket address
-            const port = 8080; // Use the same port as in SignalingServer
+            console.log('[Server] Starting server on port:', port);
+            
+            // Initialize SignalingServer with port
+            this.signalingServer = new SignalingServer(port);  // Pass port to constructor
+            
+            // Get the server's WebSocket address with the specified port
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
             this.serverAddress = `${protocol}//${location.hostname}:${port}`;
             
+            console.log('[Server] Server address:', this.serverAddress);
+            
             // Send server address to UI
-            this.postMessage('address', { address: this.serverAddress });
+            this.postMessage('address', { 
+                address: this.serverAddress,
+                port: port
+            });
             
             this.signalingServer.onMessage((message) => {
                 this.handleMessage(message);
@@ -192,76 +228,90 @@ class GameServer {
         }
     }
 
-    private handleAuthentication(data: AuthData, peerId: string) {
-        const { username, password, playerName } = data;
+    private async handleAuthentication(data: AuthData, peerId: string) {
+        try {
+            const { username, password, playerName } = data;
 
-        // Check if this is a registration
-        if (!this.userCredentials.has(username)) {
-            // Register new user
-            this.userCredentials.set(username, password);
-            this.saveUserCredentials();
-        } else {
-            // Verify password for existing user
-            if (this.userCredentials.get(username) !== password) {
-                this.signalingServer?.sendToPeer(peerId, {
-                    type: 'authenticated',
-                    data: { 
-                        success: false, 
-                        error: 'Invalid credentials' 
-                    }
-                });
-                return;
-            }
-        }
-
-        // Generate userId and store authenticated user
-        const userId = `user_${Math.random().toString(36).substr(2, 9)}`;
-        const authenticatedUser = { userId, username, playerName };
-        this.authenticatedUsers.set(peerId, authenticatedUser);
-
-        // Create initial player state
-        players[userId] = {
-            id: userId,
-            name: playerName,
-            x: 200,
-            y: WORLD_HEIGHT / 2,
-            angle: 0,
-            score: 0,
-            velocityX: 0,
-            velocityY: 0,
-            health: PLAYER_MAX_HEALTH,
-            maxHealth: PLAYER_MAX_HEALTH,
-            damage: PLAYER_DAMAGE,
-            inventory: [],
-            loadout: Array(10).fill(null),
-            isInvulnerable: true,
-            level: 1,
-            xp: 0,
-            xpToNextLevel: this.calculateXPRequirement(1)
-        };
-
-        // Send success response with game state
-        this.signalingServer?.sendToPeer(peerId, {
-            type: 'authenticated',
-            data: {
-                success: true,
-                playerId: userId,
-                gameState: {
-                    players,
-                    enemies,
-                    items,
-                    obstacles,
-                    decorations: this.decorations,
-                    sands: this.sands
+            // Check if this is a registration
+            if (!this.userCredentials.has(username)) {
+                // Register new user
+                this.userCredentials.set(username, password);
+                await this.saveUserCredentials();
+                console.log('New user registered:', username);
+            } else {
+                // Verify password for existing user
+                if (this.userCredentials.get(username) !== password) {
+                    console.log('Invalid credentials for user:', username);
+                    this.signalingServer?.sendToPeer(peerId, {
+                        type: 'authenticated',
+                        data: { 
+                            success: false, 
+                            error: 'Invalid credentials' 
+                        }
+                    });
+                    return;
                 }
+                console.log('User authenticated:', username);
             }
-        });
 
-        // Broadcast new player to others
-        this.broadcast({
-            type: 'playerJoined',
-            data: players[userId]
-        });
+            // Generate userId and store authenticated user
+            const userId = `user_${Math.random().toString(36).substr(2, 9)}`;
+            const authenticatedUser = { userId, username, playerName };
+            this.authenticatedUsers.set(peerId, authenticatedUser);
+
+            // Create initial player state
+            players[userId] = {
+                id: userId,
+                name: playerName,
+                x: 200,
+                y: WORLD_HEIGHT / 2,
+                angle: 0,
+                score: 0,
+                velocityX: 0,
+                velocityY: 0,
+                health: PLAYER_MAX_HEALTH,
+                maxHealth: PLAYER_MAX_HEALTH,
+                damage: PLAYER_DAMAGE,
+                inventory: [],
+                loadout: Array(10).fill(null),
+                isInvulnerable: true,
+                level: 1,
+                xp: 0,
+                xpToNextLevel: this.calculateXPRequirement(1)
+            };
+
+            // Send success response with game state
+            this.signalingServer?.sendToPeer(peerId, {
+                type: 'authenticated',
+                data: {
+                    success: true,
+                    playerId: userId,
+                    gameState: {
+                        players,
+                        enemies,
+                        items,
+                        obstacles,
+                        decorations: this.decorations,
+                        sands: this.sands
+                    }
+                }
+            });
+
+            // Broadcast new player to others
+            this.broadcast({
+                type: 'playerJoined',
+                data: players[userId]
+            });
+        } catch (error) {
+            console.error('Authentication error:', error);
+            this.signalingServer?.sendToPeer(peerId, {
+                type: 'authenticated',
+                data: { 
+                    success: false, 
+                    error: 'Internal server error' 
+                }
+            });
+        }
     }
 
     private broadcast(message: any) {
@@ -280,6 +330,7 @@ class GameServer {
         if (this.db) {
             this.db.close();
             this.db = null;
+            console.log('Database connection closed');
         }
         
         this.postMessage('status', { online: false });
@@ -480,17 +531,26 @@ self.onmessage = function(e) {
     
     switch(type) {
         case 'start':
-            gameServer.start();
+            // Store port in worker scope
+            if (data && data.port) {
+                console.log('[Worker] Received port:', data.port);
+                (self as any).port = data.port;
+                gameServer.start();
+            } else {
+                console.error('[Worker] No port specified in start message');
+            }
             break;
         case 'stop':
             gameServer.stop();
             break;
         case 'getAddress':
-            // Use the getter methods instead of accessing properties directly
             if (gameServer.getIsRunning()) {
                 self.postMessage({
                     type: 'address',
-                    data: { address: gameServer.getServerAddress() }
+                    data: { 
+                        address: gameServer.getServerAddress(),
+                        port: (self as any).port
+                    }
                 });
             }
             break;
