@@ -10,6 +10,7 @@ import {
 import { Enemy, Obstacle, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand } from './server_utils';
 import { Item } from './item';
 import { ServerPlayer } from './player';
+import { WebSocketServer } from 'ws';
 
 // WebSocket message types
 interface WebSocketMessage {
@@ -91,16 +92,106 @@ export class SignalingClient {
 
 // Update SignalingServer class
 export class SignalingServer {
-    private connections: Map<string, WebSocket> = new Map();
+    private connections: Map<string, MessagePort> = new Map();
     private messageHandlers: ((message: any) => void)[] = [];
+    private server: MessagePort | null = null;
 
     constructor() {
-        // Check if we're in a worker context
         if (typeof self !== 'undefined' && 
             typeof Window === 'undefined' && 
             typeof WorkerGlobalScope !== 'undefined') {
-            // Worker-specific initialization if needed
-            console.log('Initializing SignalingServer in worker context');
+            this.initializeServer();
+        }
+    }
+
+    private initializeServer(): void {
+        try {
+            // Create a message channel for server communication
+            const channel = new MessageChannel();
+            
+            // Store port1 for server communication
+            this.server = channel.port1;
+            
+            // Start listening on port1
+            this.server.onmessage = this.handleServerMessage.bind(this);
+            this.server.start(); // Start the port
+
+            // Send port2 to the main thread
+            self.postMessage({ 
+                type: 'server_init', 
+                port: channel.port2 
+            }, [channel.port2]);
+
+            console.log('Server initialized');
+        } catch (error) {
+            console.error('Failed to initialize server:', error);
+        }
+    }
+
+    private handleServerMessage(event: MessageEvent): void {
+        const { type, data, clientId } = event.data;
+        console.log('Server received message:', type, data, clientId);
+        
+        switch (type) {
+            case 'connection':
+                this.handleNewConnection(clientId);
+                break;
+            case 'message':
+                this.handleClientMessage(clientId, data);
+                break;
+            case 'disconnect':
+                this.handleDisconnect(clientId);
+                break;
+        }
+    }
+
+    private handleNewConnection(clientId: string): void {
+        console.log('New connection:', clientId);
+        // Create a new message channel for this client
+        const channel = new MessageChannel();
+        
+        // Configure port1
+        channel.port1.onmessage = (event) => {
+            this.handleClientMessage(clientId, event.data);
+        };
+        channel.port1.start(); // Start the port
+        
+        // Store the port
+        this.connections.set(clientId, channel.port1);
+
+        // Send port2 to the main thread
+        self.postMessage({
+            type: 'client_connection',
+            clientId: clientId,
+            port: channel.port2
+        }, [channel.port2]);
+
+        // Notify about new connection
+        this.messageHandlers.forEach(handler => handler({
+            type: 'connection',
+            peerId: clientId
+        }));
+    }
+
+    private handleClientMessage(clientId: string, message: any): void {
+        console.log('Client message received:', clientId, message);
+        // Add client ID to message and pass to handlers
+        message.peerId = clientId;
+        this.messageHandlers.forEach(handler => handler(message));
+    }
+
+    private handleDisconnect(clientId: string): void {
+        console.log('Client disconnected:', clientId);
+        const connection = this.connections.get(clientId);
+        if (connection) {
+            connection.close();
+            this.connections.delete(clientId);
+            
+            // Notify about disconnection
+            this.messageHandlers.forEach(handler => handler({
+                type: 'disconnect',
+                peerId: clientId
+            }));
         }
     }
 
@@ -109,57 +200,45 @@ export class SignalingServer {
     }
 
     isConnected(peerId: string): boolean {
-        return this.connections.has(peerId) && 
-               (this.connections.get(peerId)?.readyState === WebSocket.OPEN);
+        return this.connections.has(peerId);
     }
 
     sendToPeer(peerId: string, message: any): void {
+        console.log('Sending to peer:', peerId, message);
         const connection = this.connections.get(peerId);
-        if (connection && connection.readyState === WebSocket.OPEN) {
-            connection.send(JSON.stringify(message));
+        if (connection) {
+            connection.postMessage({
+                type: 'server_message',
+                data: message
+            });
         } else {
             console.error(`No active connection for peer ${peerId}`);
         }
     }
 
     broadcast(message: any): void {
-        const messageStr = JSON.stringify(message);
-        this.connections.forEach((connection) => {
-            if (connection.readyState === WebSocket.OPEN) {
-                connection.send(messageStr);
-            }
+        console.log('Broadcasting message:', message);
+        this.connections.forEach((connection, clientId) => {
+            console.log('Broadcasting to client:', clientId);
+            connection.postMessage({
+                type: 'server_message',
+                data: message
+            });
         });
     }
 
-    // Method to handle new connections
-    handleConnection(ws: WebSocket, peerId: string): void {
-        this.connections.set(peerId, ws);
-
-        ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                this.messageHandlers.forEach(handler => handler(message));
-            } catch (error) {
-                console.error('Error parsing message:', error);
-            }
-        };
-
-        ws.onclose = () => {
-            this.connections.delete(peerId);
-        };
-
-        ws.onerror = (error) => {
-            console.error(`WebSocket error for peer ${peerId}:`, error);
-            this.connections.delete(peerId);
-        };
-    }
-
-    // Method to close all connections
     close(): void {
+        // Close all connections
         this.connections.forEach((connection) => {
             connection.close();
         });
         this.connections.clear();
         this.messageHandlers = [];
+
+        // Close server connection
+        if (this.server) {
+            this.server.close();
+            this.server = null;
+        }
     }
 } 

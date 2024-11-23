@@ -57,7 +57,7 @@
 <body>
     <h1>Game Host</h1>
     <div id="connectionInfo">
-        Server Address: <span id="serverAddress">Initializing...</span>
+        Server Address: <span id="serverAddress">Not started</span>
         <button class="copy-button" onclick="copyAddress()">Copy</button>
     </div>
     <div id="status" class="offline">Status: Offline</div>
@@ -79,12 +79,19 @@
         const playerCount = document.getElementById('playerCount');
         const enemyCount = document.getElementById('enemyCount');
         const serverAddress = document.getElementById('serverAddress');
+        let serverPorts = new Map();
 
         function copyAddress() {
             const address = serverAddress.textContent;
-            navigator.clipboard.writeText(address).then(() => {
-                alert('Server address copied to clipboard!');
-            });
+            if (address && address !== 'Not started') {
+                navigator.clipboard.writeText(address).then(() => {
+                    logMessage('Server address copied to clipboard!');
+                }).catch(err => {
+                    logMessage('Failed to copy address: ' + err);
+                });
+            } else {
+                logMessage('No server address to copy - server not running');
+            }
         }
 
         function updateStatus(isOnline) {
@@ -99,6 +106,37 @@
             log.scrollTop = log.scrollHeight;
         }
 
+        function handleServerMessage(event) {
+            const { type, data, clientId, port } = event.data;
+            
+            switch (type) {
+                case 'server_init':
+                    // Store the server port
+                    port.onmessage = handleClientMessage;
+                    break;
+                
+                case 'client_connection':
+                    // Store client port and set up message handling
+                    serverPorts.set(clientId, port);
+                    port.onmessage = (e) => {
+                        worker.postMessage({
+                            type: 'message',
+                            clientId: clientId,
+                            data: e.data
+                        });
+                    };
+                    break;
+            }
+        }
+
+        function handleClientMessage(event) {
+            const { type, clientId, data } = event.data;
+            const clientPort = serverPorts.get(clientId);
+            if (clientPort) {
+                clientPort.postMessage(data);
+            }
+        }
+
         function startServer() {
             if (worker) {
                 logMessage('Server is already running');
@@ -108,24 +146,29 @@
             try {
                 worker = new Worker('server_worker.js');
                 worker.onmessage = function(e) {
-                    const { type, data } = e.data;
-                    
-                    switch(type) {
-                        case 'log':
-                            logMessage(data);
-                            break;
-                        case 'status':
-                            updateStatus(data.online);
-                            break;
-                        case 'stats':
-                            playerCount.textContent = data.players;
-                            enemyCount.textContent = data.enemies;
-                            break;
-                        case 'address':
-                            serverAddress.textContent = data.address;
-                            break;
-                        default:
-                            logMessage(JSON.stringify(e.data));
+                    if (e.data.port) {
+                        handleServerMessage(e);
+                    } else {
+                        const { type, data } = e.data;
+                        
+                        switch(type) {
+                            case 'log':
+                                logMessage(data);
+                                break;
+                            case 'status':
+                                updateStatus(data.online);
+                                break;
+                            case 'stats':
+                                playerCount.textContent = data.players;
+                                enemyCount.textContent = data.enemies;
+                                break;
+                            case 'address':
+                                serverAddress.textContent = data.address;
+                                logMessage(`Server address updated: ${data.address}`);
+                                break;
+                            default:
+                                logMessage(JSON.stringify(e.data));
+                        }
                     }
                 };
 
@@ -147,10 +190,15 @@
                 return;
             }
 
+            // Close all ports
+            serverPorts.forEach(port => port.close());
+            serverPorts.clear();
+
             worker.postMessage({ type: 'stop' });
             worker.terminate();
             worker = null;
             updateStatus(false);
+            serverAddress.textContent = 'Not started';
             logMessage('Server stopped');
         }
 
