@@ -5,8 +5,8 @@ import path from 'path';
 import fs from 'fs';
 import { database } from './database';
 import { ServerPlayer } from './player';
-import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH, SAND_COUNT, DECORATION_COUNT } from './constants';
-import { Enemy, Obstacle, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand, initializeObstacles } from './server_utils';
+import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH, SAND_COUNT, DECORATION_COUNT, WORLD_MAP, MapElement, isWall, ACTUAL_WORLD_HEIGHT, ACTUAL_WORLD_WIDTH, SCALE_FACTOR } from './constants';
+import { Enemy, Obstacle, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand } from './server_utils';
 import { Item, ItemWithRarity } from './item';
 const app = express();
 
@@ -107,136 +107,138 @@ const io = new Server(httpsServer, {
 
 const PORT = process.env.PORT || 3000;
 
-// Update createEnemy to ensure enemies spawn in their correct zones
-function createEnemy(): Enemy {
-    // First, decide the x position
-    const x = Math.random() * WORLD_WIDTH;
+// Remove or comment out these lines since we're not using grid generation anymore
+// const MAZE_CELL_SIZE = 1000;
+// const MAZE_WALL_THICKNESS = 100;
+
+// Replace the initializeObstacles function with this:
+function initializeMapObstacles(): Obstacle[] {
+    const mapObstacles: Obstacle[] = [];
     
-    // Determine tier based on x position
+    // Convert wall elements from WORLD_MAP to obstacles
+    WORLD_MAP.filter(isWall).forEach(wall => {
+        mapObstacles.push({
+            id: Math.random().toString(36).substr(2, 9),
+            x: wall.x * SCALE_FACTOR,
+            y: wall.y * SCALE_FACTOR,
+            width: wall.width * SCALE_FACTOR,
+            height: wall.height * SCALE_FACTOR,
+            type: 'coral',
+            isEnemy: false
+        });
+    });
+
+    return mapObstacles;
+}
+
+// Update the server initialization code
+// Replace the old obstacle initialization with:
+obstacles.push(...initializeMapObstacles());
+
+// Update the createEnemy function to respect safe zones
+function createEnemy(): Enemy {
+    let validPosition = false;
+    let x = 0, y = 0;
+
+    while (!validPosition) {
+        x = Math.random() * ACTUAL_WORLD_WIDTH;
+        y = Math.random() * ACTUAL_WORLD_HEIGHT;
+
+        // Check if position is in a safe zone
+        const inSafeZone = WORLD_MAP.some(element => 
+            element.type === 'safe_zone' &&
+            x >= element.x * SCALE_FACTOR && 
+            x <= (element.x + element.width) * SCALE_FACTOR &&
+            y >= element.y * SCALE_FACTOR && 
+            y <= (element.y + element.height) * SCALE_FACTOR
+        );
+
+        // Check if position collides with walls
+        const collidesWithWall = WORLD_MAP.some(element => 
+            element.type === 'wall' &&
+            x >= element.x * SCALE_FACTOR && 
+            x <= (element.x + element.width) * SCALE_FACTOR &&
+            y >= element.y * SCALE_FACTOR && 
+            y <= (element.y + element.height) * SCALE_FACTOR
+        );
+
+        if (!inSafeZone && !collidesWithWall) {
+            validPosition = true;
+        }
+    }
+
+    // Rest of createEnemy function remains the same
+    const tierRoll = Math.random();
     let tier: Enemy['tier'] = 'common';
-    for (const [t, zone] of Object.entries(ZONE_BOUNDARIES)) {
-        if (x >= zone.start && x < zone.end) {
+    let cumulativeProbability = 0;
+    
+    for (const [t, data] of Object.entries(ENEMY_TIERS)) {
+        cumulativeProbability += data.probability;
+        if (tierRoll < cumulativeProbability) {
             tier = t as Enemy['tier'];
             break;
         }
     }
 
-    const tierData = ENEMY_TIERS[tier];
-
     return {
         id: Math.random().toString(36).substr(2, 9),
         type: Math.random() < 0.5 ? 'octopus' : 'fish',
         tier,
-        x: x,  // Use the determined x position
-        y: Math.random() * WORLD_HEIGHT,
+        x,
+        y,
         angle: Math.random() * Math.PI * 2,
-        health: tierData.health,
-        speed: tierData.speed,
-        damage: tierData.damage,
+        health: ENEMY_TIERS[tier].health,
+        speed: ENEMY_TIERS[tier].speed,
+        damage: ENEMY_TIERS[tier].damage,
         knockbackX: 0,
         knockbackY: 0
     };
 }
 
-// Update the moveEnemies function
-function moveEnemies() {
-    enemies.forEach(enemy => {
-        // Apply knockback if it exists
-        if (enemy.knockbackX) {
-            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.x += enemy.knockbackX;
-            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
-        }
-        if (enemy.knockbackY) {
-            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.y += enemy.knockbackY;
-            if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
-        }
+// Update respawnPlayer to use spawn points from the map
+function respawnPlayer(player: ServerPlayer) {
+    // Find valid spawn points for player's level
+    const validSpawnPoints = WORLD_MAP.filter(element => 
+        element.type === 'spawn' &&
+        element.properties?.spawnType === getSpawnTypeForLevel(player.level)
+    );
 
-        // Find nearest player for fish behavior
-        let nearestPlayer: ServerPlayer | undefined;
-        let nearestDistance = Infinity;
-        
-        const playerArray: ServerPlayer[] = Object.values(players);
-        playerArray.forEach(player => {
-            const dx = player.x - enemy.x;
-            const dy = player.y - enemy.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            nearestDistance = distance;
-            nearestPlayer = player;
-        });
+    if (validSpawnPoints.length > 0) {
+        // Choose random spawn point
+        const spawn = validSpawnPoints[Math.floor(Math.random() * validSpawnPoints.length)];
+        player.x = (spawn.x + Math.random() * spawn.width) * SCALE_FACTOR;
+        player.y = (spawn.y + Math.random() * spawn.height) * SCALE_FACTOR;
+    } else {
+        // Fallback to old spawn logic if no valid spawn points
+        console.warn('No valid spawn points found for level', player.level);
+        player.x = Math.random() * ACTUAL_WORLD_WIDTH;
+        player.y = Math.random() * ACTUAL_WORLD_HEIGHT;
+    }
 
-        // Different movement patterns based on enemy type
-        if (enemy.type === 'octopus') {
-            // Random movement for octopus
-            enemy.x += (Math.random() * 4 - 2) * (enemy.speed || 1);
-            enemy.y += (Math.random() * 4 - 2) * (enemy.speed || 1);
-        } else {
-            // Fish behavior
-            if (nearestPlayer) {
-                if (nearestDistance < FISH_DETECTION_RADIUS) {
-                    // Fish detected player - match player speed
-                    const dx = nearestPlayer.x - enemy.x;
-                    const dy = nearestPlayer.y - enemy.y;
-                    const angle = Math.atan2(dy, dx);
-                    
-                    // Update enemy angle for proper facing direction
-                    enemy.angle = angle;
-                    
-                    // Calculate chase speed based on player's current speed
-                    const playerSpeed = 16;
-                    
-                    // Match player speed but consider enemy tier for slight variations
-                    const tierSpeedMultiplier = ENEMY_TIERS[enemy.tier as keyof typeof ENEMY_TIERS].speed;
-                    const chaseSpeed = playerSpeed * tierSpeedMultiplier;
-                    
-                    // Move towards player matching their speed
-                    enemy.x += Math.cos(angle) * chaseSpeed;
-                    enemy.y += Math.sin(angle) * chaseSpeed;
-                    
-                    // Mark fish as hostile
-                    enemy.isHostile = true;
-                } else {
-                    // Normal fish behavior
-                    enemy.isHostile = false;
-                    // Return to normal speed gradually
-                    const normalSpeed = ENEMY_TIERS[enemy.tier as keyof typeof ENEMY_TIERS].speed * 2;
-                    enemy.x += Math.cos(enemy.angle || 0) * normalSpeed;
-                  enemy.y += Math.sin(enemy.angle || 0) * normalSpeed;
-                  
-                  // Randomly change direction occasionally
-                  if (Math.random() < 0.02) {
-                      enemy.angle = Math.random() * Math.PI * 2;
-                  }
-                }
-            }
-        }
+    // Rest of respawnPlayer remains the same
+    player.health = player.maxHealth;
+    player.score = Math.max(0, player.score - 10);
+    player.isInvulnerable = true;
+    player.lastDamageTime = 0;
 
-        // Keep enemies in their respective zones
-        const zone = ZONE_BOUNDARIES[enemy.tier as keyof typeof ZONE_BOUNDARIES];
-        if (enemy.x < zone.start || enemy.x >= zone.end) {
-            // Reverse direction if exiting zone
-            if (enemy.type === 'fish') {
-                enemy.angle = Math.PI - enemy.angle; // Reverse direction
-            }
-            enemy.x = Math.max(zone.start, Math.min(zone.end - 1, enemy.x));
-        }
+    setTimeout(() => {
+        player.isInvulnerable = false;
+    }, RESPAWN_INVULNERABILITY_TIME);
+}
 
-        // Wrap around only for Y axis
-        enemy.y = (enemy.y + WORLD_HEIGHT) % WORLD_HEIGHT;
-    });
-
-    io.emit('enemiesUpdate', enemies);
+// Helper function to determine spawn type based on level
+function getSpawnTypeForLevel(level: number): NonNullable<MapElement['properties']>['spawnType'] {
+    if (level <= 5) return 'common';
+    if (level <= 10) return 'uncommon';
+    if (level <= 15) return 'rare';
+    if (level <= 25) return 'epic';
+    if (level <= 40) return 'legendary';
+    return 'mythic';
 }
 
 // Initialize enemies
 for (let i = 0; i < ENEMY_COUNT; i++) {
   enemies.push(createEnemy());
-}
-
-// Initialize obstacles with maze
-for (let i = 0; i < OBSTACLE_COUNT; i++) {
-    obstacles.push(...initializeObstacles());
 }
 
 // Initialize decorations
@@ -247,44 +249,6 @@ for (let i = 0; i < DECORATION_COUNT; i++) {
 // Initialize sands
 for (let i = 0; i < SAND_COUNT; i++) {
   sands.push(createSand());
-}
-
-function respawnPlayer(player: ServerPlayer) {
-    // Determine spawn zone based on player level
-    let spawnX;
-    if (player.level <= 5) {
-        spawnX = Math.random() * ZONE_BOUNDARIES.common.end;
-    } else if (player.level <= 10) {
-        spawnX = ZONE_BOUNDARIES.uncommon.start + Math.random() * (ZONE_BOUNDARIES.uncommon.end - ZONE_BOUNDARIES.uncommon.start);
-    } else if (player.level <= 15) {
-        spawnX = ZONE_BOUNDARIES.rare.start + Math.random() * (ZONE_BOUNDARIES.rare.end - ZONE_BOUNDARIES.rare.start);
-    } else if (player.level <= 25) {
-        spawnX = ZONE_BOUNDARIES.epic.start + Math.random() * (ZONE_BOUNDARIES.epic.end - ZONE_BOUNDARIES.epic.start);
-    } else if (player.level <= 40) {
-        spawnX = ZONE_BOUNDARIES.legendary.start + Math.random() * (ZONE_BOUNDARIES.legendary.end - ZONE_BOUNDARIES.legendary.start);
-    } else {
-        spawnX = ZONE_BOUNDARIES.mythic.start + Math.random() * (ZONE_BOUNDARIES.mythic.end - ZONE_BOUNDARIES.mythic.start);
-    }
-
-    // Reset position and health
-    player.health = player.maxHealth;
-    player.x = spawnX;
-    player.y = Math.random() * WORLD_HEIGHT;
-    player.score = Math.max(0, player.score - 10);
-    
-    // Don't reset inventory and loadout anymore
-    // player.inventory = [];  // Remove this line
-    // player.loadout = Array(10).fill(null);  // Remove this line
-    
-    player.isInvulnerable = true;
-    player.lastDamageTime = 0;
-
-    // Notify clients about the player update
-    io.emit('playerUpdated', player);
-
-    setTimeout(() => {
-        player.isInvulnerable = false;
-    }, RESPAWN_INVULNERABILITY_TIME);
 }
 
 interface AuthenticatedSocket extends Socket {
@@ -521,8 +485,8 @@ io.on('connection', (socket: AuthenticatedSocket) => {
             }
 
             // Update player position even if there was a collision (to apply knockback)
-            player.x = Math.max(0, Math.min(WORLD_WIDTH - PLAYER_SIZE, newX));
-            player.y = Math.max(0, Math.min(WORLD_HEIGHT - PLAYER_SIZE, newY));
+            player.x = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH, newX));
+            player.y = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT, newY));
             player.angle = movementData.angle;
             player.velocityX = movementData.velocityX;
             player.velocityY = movementData.velocityY;
@@ -1024,3 +988,51 @@ app.use('/assets', express.static(path.join(__dirname, '../assets'), {
         res.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
 }));
+
+// Add the moveEnemies function
+function moveEnemies() {
+    enemies.forEach(enemy => {
+        // Apply knockback if it exists
+        if (enemy.knockbackX) {
+            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.x += enemy.knockbackX;
+            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
+        }
+        if (enemy.knockbackY) {
+            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.y += enemy.knockbackY;
+            if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
+        }
+
+        // Constrain to world boundaries
+        enemy.x = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH, enemy.x));
+        enemy.y = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT, enemy.y));
+
+        // Check for wall collisions
+        WORLD_MAP.filter(isWall).forEach(wall => {
+            const scaledWall = {
+                x: wall.x * SCALE_FACTOR,
+                y: wall.y * SCALE_FACTOR,
+                width: wall.width * SCALE_FACTOR,
+                height: wall.height * SCALE_FACTOR
+            };
+
+            if (enemy.x >= scaledWall.x && 
+                enemy.x <= scaledWall.x + scaledWall.width &&
+                enemy.y >= scaledWall.y && 
+                enemy.y <= scaledWall.y + scaledWall.height) {
+                // Push enemy away from wall
+                const centerX = scaledWall.x + scaledWall.width / 2;
+                const centerY = scaledWall.y + scaledWall.height / 2;
+                const dx = enemy.x - centerX;
+                const dy = enemy.y - centerY;
+                const angle = Math.atan2(dy, dx);
+                
+                enemy.x = scaledWall.x + scaledWall.width / 2 + Math.cos(angle) * (scaledWall.width / 2 + 50);
+                enemy.y = scaledWall.y + scaledWall.height / 2 + Math.sin(angle) * (scaledWall.height / 2 + 50);
+            }
+        });
+    });
+
+    io.emit('enemiesUpdate', enemies);
+}

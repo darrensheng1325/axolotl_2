@@ -5,6 +5,7 @@ import { Item } from './item';
 import { workerBlob } from './workerblob';
 import { IMAGE_ASSETS } from './imageAssets';
 import { SVGLoader } from './SVGLoader';
+import { WORLD_MAP, MapElement, isWall, isSafeZone, isTeleporter, ACTUAL_WORLD_WIDTH, ACTUAL_WORLD_HEIGHT, SCALE_FACTOR, PLAYER_SIZE } from './constants';
 
 // Add these interfaces at the top of the file
 interface SandboxedScript {
@@ -52,8 +53,8 @@ export class Game {
   private readonly FRICTION = 0.92;           // Increased friction from 0.95 to 0.92 for even quicker deceleration
   private cameraX = 0;
   private cameraY = 0;
-  private readonly WORLD_WIDTH = 10000;  // Increased from 2000 to 10000
-  private readonly WORLD_HEIGHT = 2000;  // Keep height the same
+  private readonly WORLD_WIDTH = ACTUAL_WORLD_WIDTH;  // Increased from 2000 to 10000
+  private readonly WORLD_HEIGHT = ACTUAL_WORLD_HEIGHT;  // Keep height the same
   private keysPressed: Set<string> = new Set();
   private enemies: Map<string, Enemy> = new Map();
   private octopusSprite: HTMLImageElement = new Image();
@@ -175,6 +176,14 @@ export class Game {
   // Add to class properties
   private walls: Array<{x: number, y: number, element: SVGElement}> = [];
   private readonly WALL_SPACING = 500; // Distance between walls
+
+  // Add map rendering properties
+  private readonly MAP_COLORS = {
+      wall: 'rgba(102, 102, 102, 0.8)',
+      spawn: 'rgba(76, 175, 80, 0.3)',
+      teleporter: 'rgba(33, 150, 243, 0.5)',
+      safe_zone: 'rgba(255, 193, 7, 0.2)'
+  };
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -1036,58 +1045,100 @@ export class Game {
   }
 
   private updateCamera(player: Player) {
-      // Center camera on player
-      this.cameraX = player.x - this.canvas.width / 2;
-      this.cameraY = player.y - this.canvas.height / 2;
+    // Center camera on player
+    const targetX = player.x - this.canvas.width / 2;
+    const targetY = player.y - this.canvas.height / 2;
 
-      // Clamp camera to world bounds
-      this.cameraX = Math.max(0, Math.min(this.WORLD_WIDTH - this.canvas.width, this.cameraX));
-      this.cameraY = Math.max(0, Math.min(this.WORLD_HEIGHT - this.canvas.height, this.cameraY));
-  }
+    // Clamp camera to world bounds with proper dimensions
+    this.cameraX = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH - this.canvas.width, targetX));
+    this.cameraY = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT - this.canvas.height, targetY));
+
+    // Debug camera position
+    if (this.showHitboxes) {
+        console.log('Camera Position:', {
+            x: this.cameraX,
+            y: this.cameraY,
+            playerX: player.x,
+            playerY: player.y,
+            worldWidth: ACTUAL_WORLD_WIDTH,
+            worldHeight: ACTUAL_WORLD_HEIGHT
+        });
+    }
+}
 
   private updatePlayerPosition(player: Player) {
-      // Calculate new position
+      // Calculate new position with velocity
       const newX = player.x + player.velocityX;
       const newY = player.y + player.velocityY;
 
-      // Check collision with obstacles
+      // Check collision with map elements
       let collision = false;
-      for (const obstacle of this.obstacles) {
-          if (
-              newX < obstacle.x + obstacle.width &&
-              newX + 40 > obstacle.x && // Assuming player width is 40
-              newY < obstacle.y + obstacle.height &&
-              newY + 40 > obstacle.y // Assuming player height is 40
-          ) {
-              collision = true;
-                          break;
-                      }
-                  }
+
+      // Check wall collisions
+      for (const element of WORLD_MAP) {
+          if (isWall(element)) {
+              // No need to scale the player position since it's already in world coordinates
+              if (
+                  newX < element.x + element.width &&
+                  newX + PLAYER_SIZE > element.x &&
+                  newY < element.y + element.height &&
+                  newY + PLAYER_SIZE > element.y
+              ) {
+                  collision = true;
+                  
+                  // Calculate push direction
+                  const centerX = element.x + element.width / 2;
+                  const centerY = element.y + element.height / 2;
+                  const dx = player.x - centerX;
+                  const dy = player.y - centerY;
+                  const angle = Math.atan2(dy, dx);
+                  
+                  // Push player away from wall
+                  player.x = element.x + element.width / 2 + Math.cos(angle) * (element.width / 2 + PLAYER_SIZE);
+                  player.y = element.y + element.height / 2 + Math.sin(angle) * (element.height / 2 + PLAYER_SIZE);
+                  
+                  // Stop movement in collision direction
+                  player.velocityX = 0;
+                  player.velocityY = 0;
+                  break;
+              }
+          }
+      }
 
       if (!collision) {
-          // Update position if no collision
-          player.x = newX;
-          player.y = newY;
-      } else {
-          // Stop movement if collision occurs
-          player.velocityX = 0;
-          player.velocityY = 0;
+          // Update position if no collision, constrain to world bounds
+          player.x = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH - PLAYER_SIZE, newX));
+          player.y = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT - PLAYER_SIZE, newY));
       }
+
+      // Check for teleporters
+      WORLD_MAP.filter(isTeleporter).forEach(teleporter => {
+          if (
+              player.x >= teleporter.x &&
+              player.x <= teleporter.x + teleporter.width &&
+              player.y >= teleporter.y &&
+              player.y <= teleporter.y + teleporter.height &&
+              teleporter.properties?.teleportTo
+          ) {
+              // Teleport player
+              player.x = teleporter.properties.teleportTo.x;
+              player.y = teleporter.properties.teleportTo.y;
+              
+              // Add teleport effect
+              this.showFloatingText(
+                  player.x,
+                  player.y,
+                  "Teleported!",
+                  "#2196F3",
+                  20
+              );
+          }
+      });
 
       // Update player angle based on velocity
       if (player.velocityX !== 0 || player.velocityY !== 0) {
           player.angle = Math.atan2(player.velocityY, player.velocityX);
       }
-
-      // Apply friction only if no keys are pressed
-      if (this.keysPressed.size === 0) {
-          player.velocityX *= this.FRICTION;
-          player.velocityY *= this.FRICTION;
-      }
-
-      // Constrain to world bounds
-      player.x = Math.max(0, Math.min(this.WORLD_WIDTH, player.x));
-      player.y = Math.max(0, Math.min(this.WORLD_HEIGHT, player.y));
 
       // Update server
       this.socket.emit('playerMovement', { 
@@ -1098,10 +1149,8 @@ export class Game {
           velocityY: player.velocityY 
       });
 
-      this.checkDotCollision(player);
-      this.checkEnemyCollision(player);
+      // Update camera
       this.updateCamera(player);
-      this.checkItemCollision(player);
   }
 
   private generateDots() {
@@ -1205,357 +1254,115 @@ export class Game {
   }
 
   private gameLoop() {
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      
-      // Draw ocean background
-      this.ctx.fillStyle = '#00FFFF';
-      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    // Clear the entire canvas
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    // Draw ocean background for the entire visible area
+    this.ctx.fillStyle = '#00FFFF';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-      // Get current player for camera
-      const currentSocketId = this.socket?.id;
-      if (currentSocketId) {
-          const currentPlayer = this.players.get(currentSocketId);
-          if (currentPlayer) {
-              this.updateCamera(currentPlayer);
-          }
-      }
+    // Get current player for camera
+    const currentSocketId = this.socket?.id;
+    if (currentSocketId) {
+        const currentPlayer = this.players.get(currentSocketId);
+        if (currentPlayer) {
+            this.updateCamera(currentPlayer);
+        }
+    }
 
-      this.ctx.save();
-      this.ctx.translate(-this.cameraX, -this.cameraY);
+    this.ctx.save();
+    
+    // Apply camera transform
+    this.ctx.translate(-this.cameraX, -this.cameraY);
 
-      // Draw world bounds
-      this.ctx.strokeStyle = 'black';
-      this.ctx.strokeRect(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT);
+    // Draw world bounds
+    this.ctx.strokeStyle = 'black';
+    this.ctx.strokeRect(0, 0, ACTUAL_WORLD_WIDTH, ACTUAL_WORLD_HEIGHT);
 
-      // Draw zone indicators with updated colors
-      const zones = [
-          { name: 'Common', end: 2000, color: 'rgba(128, 128, 128, 0.1)' },    // Lighter gray
-          { name: 'Uncommon', end: 4000, color: 'rgba(144, 238, 144, 0.1)' },  // Light green (LightGreen)
-          { name: 'Rare', end: 6000, color: 'rgba(0, 0, 255, 0.1)' },          // Blue
-          { name: 'Epic', end: 8000, color: 'rgba(128, 0, 128, 0.1)' },        // Purple
-          { name: 'Legendary', end: 9000, color: 'rgba(255, 165, 0, 0.1)' },   // Orange
-          { name: 'Mythic', end: this.WORLD_WIDTH, color: 'rgba(255, 0, 0, 0.1)' }  // Red
-      ];
+    // Draw zone boundaries
+    const zoneWidth = ACTUAL_WORLD_WIDTH / 6;
+    const zones = [
+        { name: 'Common', color: 'rgba(128, 128, 128, 0.1)' },
+        { name: 'Uncommon', color: 'rgba(144, 238, 144, 0.1)' },
+        { name: 'Rare', color: 'rgba(0, 0, 255, 0.1)' },
+        { name: 'Epic', color: 'rgba(128, 0, 128, 0.1)' },
+        { name: 'Legendary', color: 'rgba(255, 165, 0, 0.1)' },
+        { name: 'Mythic', color: 'rgba(255, 0, 0, 0.1)' }
+    ];
 
-      let start = 0;
-      zones.forEach(zone => {
-          // Draw zone background
-          this.ctx.fillStyle = zone.color;
-          this.ctx.fillRect(start, 0, zone.end - start, this.WORLD_HEIGHT);
-          
-          // Draw zone name
-          this.ctx.fillStyle = 'black';
-          this.ctx.font = '20px Arial';
-          this.ctx.fillText(zone.name, start + 10, 30);
-          
-          start = zone.end;
-      });
+    zones.forEach((zone, index) => {
+        const x = index * zoneWidth;
+        this.ctx.fillStyle = zone.color;
+        this.ctx.fillRect(x, 0, zoneWidth, ACTUAL_WORLD_HEIGHT);
+        
+        // Draw zone name
+        this.ctx.fillStyle = 'black';
+        this.ctx.font = '20px Arial';
+        this.ctx.fillText(zone.name, x + 10, 30);
+    });
 
-      // Draw dots
-      this.ctx.fillStyle = 'yellow';
-      this.dots.forEach(dot => {
-          this.ctx.beginPath();
-          this.ctx.arc(dot.x, dot.y, this.DOT_SIZE, 0, Math.PI * 2);
-          this.ctx.fill();
-      });
+    // Draw map elements
+    this.drawMap();
 
-      // Draw sand first
-      this.sands.forEach(sand => {
-          this.ctx.save();
-          this.ctx.translate(sand.x, sand.y);
-          
-          // Draw sand blob with opaque color
-          this.ctx.fillStyle = '#FFE4B5';  // Moccasin color, fully opaque
-          this.ctx.beginPath();
-          
-          // Draw static blob shape using the saved rotation
-          this.ctx.moveTo(sand.radius * 0.8, 0);
-          for (let angle = 0; angle <= Math.PI * 2; angle += Math.PI / 8) {
-              // Use the sand's saved rotation for consistent shape
-              const currentAngle = angle + sand.rotation;
-              const randomRadius = sand.radius * 0.9; // Less variation for more consistent shape
-              const x = Math.cos(currentAngle) * randomRadius;
-              const y = Math.sin(currentAngle) * randomRadius;
-              this.ctx.lineTo(x, y);
-          }
-          
-          this.ctx.closePath();
-          this.ctx.fill();
-          
-          this.ctx.restore();
-      });
+    // Draw game objects
+    this.drawGameObjects();
 
-      // Draw decorations (palm trees)
-      this.decorations.forEach(decoration => {
-          this.ctx.save();
-          this.ctx.translate(decoration.x, decoration.y);
-          this.ctx.scale(decoration.scale, decoration.scale);
-          
-          // Draw palm tree
-          this.ctx.drawImage(
-              this.palmSprite,
-              -this.palmSprite.width / 2,
-              -this.palmSprite.height / 2
-          );
-          
-          this.ctx.restore();
-      });
+    this.ctx.restore();
 
-      // In the gameLoop method, add this after drawing the background but before drawing players
-      this.drawWalls();
+    // Draw UI elements (after restore)
+    this.drawUI();
 
-      // Draw players
-      this.players.forEach((player, id) => {
-          this.ctx.save();
-          this.ctx.translate(player.x, player.y);
-          this.ctx.rotate(player.angle);
-          
-          // Apply hue rotation if it's the current player
-          if (id === this.socket?.id) {
-              const offscreen = document.createElement('canvas');
-              offscreen.width = this.playerSprite.width;
-              offscreen.height = this.playerSprite.height;
-              const offCtx = offscreen.getContext('2d')!;
-              
-              offCtx.drawImage(this.playerSprite, 0, 0);
-              const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
-              this.applyHueRotation(offCtx, imageData);
-              offCtx.putImageData(imageData, 0, 0);
-              
-              this.ctx.drawImage(
-                  offscreen,
-                  -this.playerSprite.width / 2,
-                  -this.playerSprite.height / 2
-              );
-          } else {
-              this.ctx.drawImage(
-                  this.playerSprite,
-                  -this.playerSprite.width / 2,
-                  -this.playerSprite.height / 2
-              );
-          }
-          
-          this.ctx.restore();
+    // Continue game loop
+    this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
+}
 
-          // Draw player name above player
-          this.ctx.fillStyle = 'white';
-          this.ctx.strokeStyle = 'black';
-          this.ctx.lineWidth = 2;
-          this.ctx.font = '16px Arial';
-          this.ctx.textAlign = 'center';
-          const nameText = player.name || 'Anonymous';
-          
-          // Draw text stroke
-          this.ctx.strokeText(nameText, player.x, player.y - 50);
-          // Draw text fill
-          this.ctx.fillText(nameText, player.x, player.y - 50);
+private drawGameObjects() {
+    // Draw only objects that are within the viewport
+    const viewport = {
+        left: this.cameraX,
+        right: this.cameraX + this.canvas.width,
+        top: this.cameraY,
+        bottom: this.cameraY + this.canvas.height
+    };
 
-          // Draw stats on the left side if this is the current player
-          if (id === this.socket?.id) {
-              // Save the current transform
-              this.ctx.save();
-              
-              // Reset transform for UI elements
-              this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-              
-              const statsX = 20;  // Distance from left edge
-              const statsY = 100; // Distance from top
-              const barWidth = 200; // Wider bars
-              const barHeight = 20; // Taller bars
-              const spacing = 30;  // Space between elements
+    // Draw dots
+    this.dots.forEach(dot => {
+        if (this.isInViewport(dot.x, dot.y, viewport)) {
+            this.ctx.fillStyle = 'yellow';
+            this.ctx.beginPath();
+            this.ctx.arc(dot.x, dot.y, this.DOT_SIZE, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+    });
 
-              // Draw health bar
-              this.ctx.fillStyle = 'black';
-              this.ctx.fillRect(statsX, statsY, barWidth, barHeight);
-              this.ctx.fillStyle = 'lime';
-              this.ctx.fillRect(statsX, statsY, barWidth * (player.health / player.maxHealth), barHeight);
-              
-              // Draw health text
-              this.ctx.fillStyle = 'white';
-              this.ctx.font = '16px Arial';
-              this.ctx.textAlign = 'left';
-              this.ctx.fillText(`Health: ${Math.round(player.health)}/${player.maxHealth}`, statsX + 5, statsY + 15);
+    // Draw players
+    this.players.forEach(player => {
+        if (this.isInViewport(player.x, player.y, viewport)) {
+            this.drawPlayer(player);
+        }
+    });
 
-              // Draw XP bar
-              if (player.level < this.MAX_LEVEL) {
-                  this.ctx.fillStyle = '#4169E1';
-                  this.ctx.fillRect(statsX, statsY + spacing, barWidth, barHeight);
-                  this.ctx.fillStyle = '#00FFFF';
-                  this.ctx.fillRect(statsX, statsY + spacing, barWidth * (player.xp / player.xpToNextLevel), barHeight);
-                  
-                  // Draw XP text
-                  this.ctx.fillStyle = 'white';
-                  this.ctx.fillText(`XP: ${player.xp}/${player.xpToNextLevel}`, statsX + 5, statsY + spacing + 15);
-              }
+    // Draw enemies
+    this.enemies.forEach(enemy => {
+        if (this.isInViewport(enemy.x, enemy.y, viewport)) {
+            this.drawEnemy(enemy);
+        }
+    });
 
-              // Draw level
-              this.ctx.fillStyle = '#FFD700';
-              this.ctx.font = '20px Arial';
-              this.ctx.fillText(`Level ${player.level}`, statsX, statsY - 10);
+    // Draw items
+    this.items.forEach(item => {
+        if (this.isInViewport(item.x, item.y, viewport)) {
+            this.drawItem(item);
+        }
+    });
+}
 
-              // Restore the transform
-              this.ctx.restore();
-          }
-      });
-
-      // Draw enemies
-      this.enemies.forEach(enemy => {
-          const sizeMultiplier = this.ENEMY_SIZE_MULTIPLIERS[enemy.tier];
-          const enemySize = 40 * sizeMultiplier;  // Base size * multiplier
-          
-          this.ctx.save();
-          this.ctx.translate(enemy.x, enemy.y);
-          this.ctx.rotate(enemy.angle);
-          
-          // Draw hitbox if enabled
-          if (this.showHitboxes) {
-              this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';  // Semi-transparent red
-              this.ctx.lineWidth = 2;
-              
-              // Draw rectangular hitbox
-              this.ctx.strokeRect(-enemySize/2, -enemySize/2, enemySize, enemySize);
-              
-              // Draw center point
-              this.ctx.beginPath();
-              this.ctx.arc(0, 0, 2, 0, Math.PI * 2);
-              this.ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';  // Yellow dot for center
-              this.ctx.fill();
-              
-              // Draw hitbox dimensions
-              this.ctx.fillStyle = 'white';
-              this.ctx.font = '12px Arial';
-              this.ctx.fillText(`${Math.round(enemySize)}x${Math.round(enemySize)}`, 0, enemySize/2 + 20);
-          }
-
-          // Draw enemy with color based on tier
-          this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
-          this.ctx.beginPath();
-          this.ctx.arc(0, 0, enemySize/2, 0, Math.PI * 2);
-          this.ctx.fill();
-
-          if (enemy.type === 'octopus') {
-              this.ctx.drawImage(this.octopusSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
-          } else {
-              this.ctx.drawImage(this.fishSprite, -enemySize/2, -enemySize/2, enemySize, enemySize);
-          }
-          
-          this.ctx.restore();
-
-          // Draw health bar and tier indicator - adjust position based on size
-          const maxHealth = this.ENEMY_MAX_HEALTH[enemy.tier];
-          const healthBarWidth = 50 * sizeMultiplier;
-          
-          // Health bar
-          this.ctx.fillStyle = 'black';
-          this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth, 5);
-          this.ctx.fillStyle = 'lime';
-          this.ctx.fillRect(enemy.x - healthBarWidth/2, enemy.y - enemySize/2 - 10, healthBarWidth * (enemy.health / maxHealth), 5);
-          
-          // Tier text
-          this.ctx.fillStyle = 'white';
-          this.ctx.font = (12 * sizeMultiplier) + 'px Arial';
-          this.ctx.fillText(enemy.tier.toUpperCase(), enemy.x - healthBarWidth/2, enemy.y + enemySize/2 + 15);
-      });
-
-      // Draw obstacles
-      this.obstacles.forEach(obstacle => {
-          if (obstacle.type === 'coral') {
-              this.ctx.save();
-              this.ctx.translate(obstacle.x, obstacle.y);
-              
-              if (obstacle.isEnemy) {
-                  // Draw enemy coral with a reddish tint
-                  this.ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                  this.ctx.fillRect(0, 0, obstacle.width, obstacle.height);
-              }
-              
-              this.ctx.drawImage(this.coralSprite, 0, 0, obstacle.width, obstacle.height);
-              
-              if (obstacle.isEnemy && obstacle.health !== undefined) {
-                  // Draw health bar for enemy coral
-                  this.ctx.fillStyle = 'red';
-                  this.ctx.fillRect(0, -10, obstacle.width, 5);
-                  this.ctx.fillStyle = 'green';
-                  this.ctx.fillRect(0, -10, obstacle.width * (obstacle.health / this.ENEMY_CORAL_MAX_HEALTH), 5);
-              }
-              
-              this.ctx.restore();
-          }
-      });
-
-      // Draw items
-      this.items.forEach(item => {
-          const sprite = this.itemSprites[item.type];
-          if (!sprite) {
-              console.warn(`No sprite found for item type: ${item.type}`);
-              return;  // Skip drawing this item if sprite isn't loaded
-          }
-          
-          // Draw rarity ring
-          if (item.rarity) {
-              this.ctx.save();
-              
-              // Draw outer ring
-              this.ctx.beginPath();
-              this.ctx.arc(item.x, item.y, 20, 0, Math.PI * 2);
-              this.ctx.strokeStyle = this.ITEM_RARITY_COLORS[item.rarity];
-              this.ctx.lineWidth = 3;
-              
-              // Add glow effect
-              this.ctx.shadowColor = this.ITEM_RARITY_COLORS[item.rarity];
-              this.ctx.shadowBlur = 10;
-              this.ctx.stroke();
-              
-              this.ctx.restore();
-          }
-          
-          // Draw the item sprite
-          if (sprite.complete) {  // Only draw if the sprite is fully loaded
-              this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
-          }
-      });
-
-      // Draw player inventory
-      const playerSocketId = this.socket.id;  // Changed variable name
-      if (playerSocketId) {
-          const player = this.players.get(playerSocketId);
-          if (player) {
-              player.inventory.forEach((item, index) => {
-                  const sprite = this.itemSprites[item.type];
-                  this.ctx.drawImage(sprite, 10 + index * 40, 10, 30, 30);
-              });
-          }
-      }
-
-      this.ctx.restore();
-
-      // Draw minimap (after restoring context)
-      this.drawMinimap();
-
-      // Draw floating texts
-      this.floatingTexts = this.floatingTexts.filter(text => {
-          text.y -= 1;
-          text.alpha -= 1 / text.lifetime;
-          
-          if (text.alpha <= 0) return false;
-          
-          this.ctx.globalAlpha = text.alpha;
-          this.ctx.fillStyle = text.color;
-          this.ctx.font = text.fontSize + 'px Arial';
-          this.ctx.fillText(text.text, text.x, text.y);
-          this.ctx.globalAlpha = 1;
-          
-          return true;
-      });
-
-      // Don't process player input if dead
-      if (!this.isPlayerDead) {
-          // Process player movement and input
-          this.updatePlayerVelocity();
-      }
-
-      this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
-  }
+private isInViewport(x: number, y: number, viewport: { left: number, right: number, top: number, bottom: number }): boolean {
+    return x >= viewport.left - 100 && 
+           x <= viewport.right + 100 && 
+           y >= viewport.top - 100 && 
+           y <= viewport.bottom + 100;
+}
 
   private async setupItemSprites() {
       this.itemSprites = {};
@@ -1727,46 +1534,36 @@ export class Game {
   private drawMinimap() {
       const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
       const minimapY = this.MINIMAP_PADDING;
+      const minimapScale = {
+          x: this.MINIMAP_WIDTH / ACTUAL_WORLD_WIDTH,
+          y: this.MINIMAP_HEIGHT / ACTUAL_WORLD_HEIGHT
+      };
 
       // Draw minimap background
       this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
       this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
 
-      // Draw zones on minimap with matching colors
-      const zones = [
-          { color: 'rgba(128, 128, 128, 0.5)' },    // Gray
-          { color: 'rgba(144, 238, 144, 0.5)' },    // Light green
-          { color: 'rgba(0, 0, 255, 0.5)' },        // Blue
-          { color: 'rgba(128, 0, 128, 0.5)' },      // Purple
-          { color: 'rgba(255, 165, 0, 0.5)' },      // Orange
-          { color: 'rgba(255, 0, 0, 0.5)' }         // Red
-      ];
+      // Draw viewport rectangle on minimap
+      const viewportRect = {
+          x: minimapX + (this.cameraX * minimapScale.x),
+          y: minimapY + (this.cameraY * minimapScale.y),
+          width: (this.canvas.width * minimapScale.x),
+          height: (this.canvas.height * minimapScale.y)
+      };
 
-      zones.forEach((zone, index) => {
-          const zoneWidth = (this.MINIMAP_WIDTH / 6);
-          this.ctx.fillStyle = zone.color;
+      this.ctx.strokeStyle = 'white';
+      this.ctx.strokeRect(viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
+
+      // Draw players on minimap
+      this.players.forEach(player => {
+          this.ctx.fillStyle = player.id === this.socket.id ? 'yellow' : 'red';
           this.ctx.fillRect(
-              minimapX + index * zoneWidth,
-              minimapY,
-              zoneWidth,
-              this.MINIMAP_HEIGHT
+              minimapX + (player.x * minimapScale.x),
+              minimapY + (player.y * minimapScale.y),
+              3,
+              3
           );
       });
-
-      // Draw player position on minimap
-      const minimapSocketId = this.socket?.id;  // Changed variable name
-      if (minimapSocketId) {
-          const player = this.players.get(minimapSocketId);
-          if (player) {
-              const playerMinimapX = minimapX + (player.x / this.WORLD_WIDTH) * this.MINIMAP_WIDTH;
-              const playerMinimapY = minimapY + (player.y / this.WORLD_HEIGHT) * this.MINIMAP_HEIGHT;
-              
-              this.ctx.fillStyle = 'yellow';
-              this.ctx.beginPath();
-              this.ctx.arc(playerMinimapX, playerMinimapY, 2, 0, Math.PI * 2);
-              this.ctx.fill();
-          }
-      }
   }
 
   private hideTitleScreen() {
@@ -3200,4 +2997,304 @@ export class Game {
         }
     });
 }
+
+  private drawMap() {
+      // Draw all map elements
+      WORLD_MAP.forEach(element => {
+          // No need to scale coordinates since they're already in world space
+          const x = element.x;
+          const y = element.y;
+          const width = element.width;
+          const height = element.height;
+
+          // Only draw elements that are visible in the viewport
+          if (
+              x + width >= this.cameraX &&
+              x <= this.cameraX + this.canvas.width &&
+              y + height >= this.cameraY &&
+              y <= this.cameraY + this.canvas.height
+          ) {
+              this.ctx.fillStyle = this.MAP_COLORS[element.type];
+              this.ctx.fillRect(x, y, width, height);
+
+              // Add visual indicators for special elements
+              if (element.type === 'teleporter') {
+                  this.drawTeleporter(x, y, width, height);
+              } else if (element.type === 'spawn') {
+                  this.drawSpawnPoint(x, y, width, height, element.properties?.spawnType);
+              }
+
+              // Draw debug info if hitboxes are enabled
+              if (this.showHitboxes) {
+                  this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+                  this.ctx.strokeRect(x, y, width, height);
+                  this.ctx.fillStyle = 'white';
+                  this.ctx.font = '12px Arial';
+                  this.ctx.fillText(`${Math.round(x)},${Math.round(y)}`, x, y - 5);
+              }
+          }
+      });
+  }
+
+  private drawTeleporter(x: number, y: number, width: number, height: number) {
+      // Add portal effect
+      const gradient = this.ctx.createRadialGradient(
+          x + width/2, y + height/2, 0,
+          x + width/2, y + height/2, width/2
+      );
+      gradient.addColorStop(0, 'rgba(33, 150, 243, 0.8)');
+      gradient.addColorStop(1, 'rgba(33, 150, 243, 0)');
+      
+      this.ctx.fillStyle = gradient;
+      this.ctx.fillRect(x, y, width, height);
+
+      // Add swirl effect
+      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      const time = Date.now() / 1000;
+      for (let i = 0; i < Math.PI * 2; i += 0.1) {
+          const radius = (Math.sin(time + i) + 1) * width/4;
+          const px = x + width/2 + Math.cos(i) * radius;
+          const py = y + height/2 + Math.sin(i) * radius;
+          if (i === 0) this.ctx.moveTo(px, py);
+          else this.ctx.lineTo(px, py);
+      }
+      this.ctx.closePath();
+      this.ctx.stroke();
+  }
+
+  private drawSpawnPoint(x: number, y: number, width: number, height: number, type?: string) {
+      // Draw spawn area indicator
+      const color = type ? this.getTierColor(type) : 'rgba(76, 175, 80, 0.3)';
+      this.ctx.fillStyle = color;
+      this.ctx.fillRect(x, y, width, height);
+
+      // Add spawn point marker
+      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.arc(x + width/2, y + height/2, Math.min(width, height)/4, 0, Math.PI * 2);
+      this.ctx.stroke();
+
+      // Add tier label
+      if (type) {
+          this.ctx.fillStyle = 'white';
+          this.ctx.font = '20px Arial';
+          this.ctx.textAlign = 'center';
+          this.ctx.fillText(type.toUpperCase(), x + width/2, y + height/2);
+      }
+  }
+
+  private getTierColor(tier: string): string {
+      const colors = {
+          common: 'rgba(128, 128, 128, 0.3)',
+          uncommon: 'rgba(0, 128, 0, 0.3)',
+          rare: 'rgba(0, 0, 255, 0.3)',
+          epic: 'rgba(128, 0, 128, 0.3)',
+          legendary: 'rgba(255, 165, 0, 0.3)',
+          mythic: 'rgba(255, 0, 0, 0.3)'
+      };
+      return colors[tier as keyof typeof colors] || colors.common;
+  }
+
+  // Add these methods to the Game class
+
+  private drawUI() {
+      // Draw player stats
+      const player = this.players.get(this.socket?.id || '');
+      if (player) {
+          // Draw health bar
+          const healthBarWidth = 200;
+          const healthBarHeight = 20;
+          const healthX = 20;
+          const healthY = 20;
+
+          // Health bar background
+          this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          this.ctx.fillRect(healthX, healthY, healthBarWidth, healthBarHeight);
+
+          // Health bar fill
+          this.ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+          this.ctx.fillRect(
+              healthX,
+              healthY,
+              (player.health / player.maxHealth) * healthBarWidth,
+              healthBarHeight
+          );
+
+          // Health text
+          this.ctx.fillStyle = 'white';
+          this.ctx.font = '14px Arial';
+          this.ctx.fillText(
+              `Health: ${Math.round(player.health)}/${player.maxHealth}`,
+              healthX + 5,
+              healthY + 15
+          );
+
+          // Draw XP bar
+          const xpBarY = healthY + healthBarHeight + 5;
+          this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          this.ctx.fillRect(healthX, xpBarY, healthBarWidth, healthBarHeight);
+
+          this.ctx.fillStyle = 'rgba(0, 128, 255, 0.7)';
+          this.ctx.fillRect(
+              healthX,
+              xpBarY,
+              (player.xp / player.xpToNextLevel) * healthBarWidth,
+              healthBarHeight
+          );
+
+          this.ctx.fillStyle = 'white';
+          this.ctx.fillText(
+              `Level ${player.level} - XP: ${player.xp}/${player.xpToNextLevel}`,
+              healthX + 5,
+              xpBarY + 15
+          );
+      }
+
+      // Draw minimap
+      this.drawMinimap();
+
+      // Draw floating texts
+      this.drawFloatingTexts();
+  }
+
+  private drawPlayer(player: Player) {
+      this.ctx.save();
+      this.ctx.translate(player.x, player.y);
+      this.ctx.rotate(player.angle);
+
+      // Draw player sprite
+      if (player.id === this.socket?.id) {
+          // Apply hue rotation for current player
+          const offscreen = document.createElement('canvas');
+          offscreen.width = this.playerSprite.width;
+          offscreen.height = this.playerSprite.height;
+          const offCtx = offscreen.getContext('2d')!;
+          
+          offCtx.drawImage(this.playerSprite, 0, 0);
+          const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
+          this.applyHueRotation(offCtx, imageData);
+          offCtx.putImageData(imageData, 0, 0);
+          
+          this.ctx.drawImage(
+              offscreen,
+              -this.playerSprite.width / 2,
+              -this.playerSprite.height / 2
+          );
+      } else {
+          this.ctx.drawImage(
+              this.playerSprite,
+              -this.playerSprite.width / 2,
+              -this.playerSprite.height / 2
+          );
+      }
+
+      // Draw hitbox if enabled
+      if (this.showHitboxes) {
+          this.ctx.strokeStyle = 'red';
+          this.ctx.strokeRect(-20, -20, 40, 40);
+      }
+
+      // Draw player name
+      this.ctx.fillStyle = 'white';
+      this.ctx.textAlign = 'center';
+      this.ctx.font = '14px Arial';
+      this.ctx.fillText(player.name || 'Anonymous', 0, -30);
+
+      this.ctx.restore();
+  }
+
+  private drawEnemy(enemy: Enemy) {
+      const sizeMultiplier = this.ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+      const enemySize = 40 * sizeMultiplier;
+
+      this.ctx.save();
+      this.ctx.translate(enemy.x, enemy.y);
+      this.ctx.rotate(enemy.angle);
+
+      // Draw enemy sprite based on type
+      const sprite = enemy.type === 'octopus' ? this.octopusSprite : this.fishSprite;
+      this.ctx.drawImage(
+          sprite,
+          -enemySize / 2,
+          -enemySize / 2,
+          enemySize,
+          enemySize
+      );
+
+      // Draw hitbox if enabled
+      if (this.showHitboxes) {
+          this.ctx.strokeStyle = this.ENEMY_COLORS[enemy.tier];
+          this.ctx.strokeRect(-enemySize/2, -enemySize/2, enemySize, enemySize);
+      }
+
+      // Draw health bar
+      const healthBarWidth = enemySize;
+      const healthBarHeight = 5;
+      const healthBarY = -enemySize/2 - 10;
+
+      this.ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+      this.ctx.fillRect(-healthBarWidth/2, healthBarY, healthBarWidth, healthBarHeight);
+
+      this.ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+      this.ctx.fillRect(
+          -healthBarWidth/2,
+          healthBarY,
+          (enemy.health / this.ENEMY_MAX_HEALTH[enemy.tier]) * healthBarWidth,
+          healthBarHeight
+      );
+
+      // Draw enemy tier
+      this.ctx.fillStyle = 'white';
+      this.ctx.textAlign = 'center';
+      this.ctx.font = '12px Arial';
+      this.ctx.fillText(enemy.tier.toUpperCase(), 0, enemySize/2 + 20);
+
+      this.ctx.restore();
+  }
+
+  private drawItem(item: Item) {
+      const sprite = this.itemSprites[item.type];
+      if (!sprite) return;
+
+      // Draw item rarity glow
+      if (item.rarity) {
+          this.ctx.save();
+          this.ctx.beginPath();
+          this.ctx.arc(item.x, item.y, 25, 0, Math.PI * 2);
+          this.ctx.fillStyle = `${this.ITEM_RARITY_COLORS[item.rarity]}40`;
+          this.ctx.fill();
+          this.ctx.restore();
+      }
+
+      // Draw item sprite
+      this.ctx.drawImage(sprite, item.x - 15, item.y - 15, 30, 30);
+
+      // Draw hitbox if enabled
+      if (this.showHitboxes) {
+          this.ctx.strokeStyle = 'yellow';
+          this.ctx.strokeRect(item.x - 15, item.y - 15, 30, 30);
+      }
+  }
+
+  private drawFloatingTexts() {
+      this.floatingTexts = this.floatingTexts.filter(text => {
+          text.y -= 1;
+          text.alpha -= 1 / text.lifetime;
+          
+          if (text.alpha <= 0) return false;
+          
+          this.ctx.save();
+          this.ctx.globalAlpha = text.alpha;
+          this.ctx.fillStyle = text.color;
+          this.ctx.font = `${text.fontSize}px Arial`;
+          this.ctx.textAlign = 'center';
+          this.ctx.fillText(text.text, text.x, text.y);
+          this.ctx.restore();
+          
+          return true;
+      });
+  }
 }

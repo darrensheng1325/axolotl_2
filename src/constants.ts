@@ -17,6 +17,9 @@ export const items: Item[] = [];
 
 export const WORLD_WIDTH = 20000;
 export const WORLD_HEIGHT = 20000;
+export const ACTUAL_WORLD_WIDTH = 20000;
+export const ACTUAL_WORLD_HEIGHT = 20000;
+export const SCALE_FACTOR = 1;
 //export let ENEMY_COUNT = 200;
 export const OBSTACLE_COUNT = 20;
 export const ENEMY_CORAL_PROBABILITY = 0.3;
@@ -90,3 +93,120 @@ export const DROP_CHANCES = {
 // Add maze configuration
 export const MAZE_CELL_SIZE = 1000;  // Size of each maze cell
 export const MAZE_WALL_THICKNESS = 100;  // Thickness of maze walls
+
+// Add map configuration
+export interface MapElement {
+    type: 'wall' | 'spawn' | 'teleporter' | 'safe_zone';
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    properties?: {
+        teleportTo?: { x: number; y: number };
+        spawnType?: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
+        isNoCombat?: boolean;
+        isSafeZone?: boolean;
+    };
+}
+
+// Define the permanent map layout
+export const WORLD_MAP: MapElement[] = [
+    // Border walls
+    { 
+        type: 'wall', 
+        x: 0, 
+        y: 0, 
+        width: WORLD_WIDTH, 
+        height: 100 
+    },  // Top wall
+    { 
+        type: 'wall', 
+        x: 0, 
+        y: WORLD_HEIGHT - 100, 
+        width: WORLD_WIDTH, 
+        height: 100 
+    },  // Bottom wall
+    { 
+        type: 'wall', 
+        x: 0, 
+        y: 0, 
+        width: 100, 
+        height: WORLD_HEIGHT 
+    },  // Left wall
+    { 
+        type: 'wall', 
+        x: WORLD_WIDTH - 100, 
+        y: 0, 
+        width: 100, 
+        height: WORLD_HEIGHT 
+    },  // Right wall
+
+    // ... (rest of your map elements)
+];
+
+// Add map validation function
+export function validateWorldMap(map: MapElement[]): boolean {
+    // Check for required border walls
+    const hasTopWall = map.some(el => el.type === 'wall' && el.y === 0 && el.width === WORLD_WIDTH);
+    const hasBottomWall = map.some(el => el.type === 'wall' && el.y === WORLD_HEIGHT - 100);
+    const hasLeftWall = map.some(el => el.type === 'wall' && el.x === 0);
+    const hasRightWall = map.some(el => el.type === 'wall' && el.x === WORLD_WIDTH - 100);
+
+    if (!hasTopWall || !hasBottomWall || !hasLeftWall || !hasRightWall) {
+        console.error('Map is missing border walls');
+        return false;
+    }
+
+    // Check for at least one spawn point per tier
+    const spawnTypes = map
+        .filter(el => el.type === 'spawn')
+        .map(el => el.properties?.spawnType)
+        .filter((type): type is ('common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic') => type !== undefined);
+    
+    const requiredSpawnTypes: ('common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic')[] = 
+        ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
+    const hasAllSpawnTypes = requiredSpawnTypes.every(type => spawnTypes.includes(type));
+
+    if (!hasAllSpawnTypes) {
+        console.error('Map is missing spawn points for some tiers');
+        return false;
+    }
+
+    // Check for overlapping elements
+    for (let i = 0; i < map.length; i++) {
+        for (let j = i + 1; j < map.length; j++) {
+            if (elementsOverlap(map[i], map[j])) {
+                console.error('Map has overlapping elements:', map[i], map[j]);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+function elementsOverlap(a: MapElement, b: MapElement): boolean {
+    return !(
+        a.x + a.width < b.x ||
+        b.x + b.width < a.x ||
+        a.y + a.height < b.y ||
+        b.y + b.height < a.y
+    );
+}
+
+// Add map element type guards
+export function isWall(element: MapElement): boolean {
+    return element.type === 'wall';
+}
+
+export function isSpawn(element: MapElement): boolean {
+    return element.type === 'spawn';
+}
+
+export function isTeleporter(element: MapElement): boolean {
+    return element.type === 'teleporter';
+}
+
+export function isSafeZone(element: MapElement): boolean {
+    return element.type === 'safe_zone';
+}

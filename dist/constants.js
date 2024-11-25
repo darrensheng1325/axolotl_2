@@ -1,6 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAZE_WALL_THICKNESS = exports.MAZE_CELL_SIZE = exports.DROP_CHANCES = exports.ENEMY_SIZE_MULTIPLIERS = exports.ZONE_BOUNDARIES = exports.ENEMY_SIZE = exports.PLAYER_SIZE = exports.DAMAGE_PER_LEVEL = exports.HEALTH_PER_LEVEL = exports.XP_MULTIPLIER = exports.BASE_XP_REQUIREMENT = exports.KNOCKBACK_RECOVERY_SPEED = exports.KNOCKBACK_FORCE = exports.RESPAWN_INVULNERABILITY_TIME = exports.MAX_INVENTORY_SIZE = exports.ENEMY_TIERS = exports.MAX_SAND_RADIUS = exports.MIN_SAND_RADIUS = exports.SAND_COUNT = exports.DECORATION_COUNT = exports.ENEMY_DAMAGE = exports.PLAYER_DAMAGE = exports.ENEMY_MAX_HEALTH = exports.PLAYER_MAX_HEALTH = exports.ENEMY_CORAL_DAMAGE = exports.ENEMY_CORAL_HEALTH = exports.ENEMY_CORAL_PROBABILITY = exports.OBSTACLE_COUNT = exports.WORLD_HEIGHT = exports.WORLD_WIDTH = exports.items = exports.obstacles = exports.enemies = exports.dots = exports.players = exports.FISH_RETURN_SPEED = exports.PLAYER_BASE_SPEED = exports.FISH_DETECTION_RADIUS = void 0;
+exports.WORLD_MAP = exports.MAZE_WALL_THICKNESS = exports.MAZE_CELL_SIZE = exports.DROP_CHANCES = exports.ENEMY_SIZE_MULTIPLIERS = exports.ZONE_BOUNDARIES = exports.ENEMY_SIZE = exports.PLAYER_SIZE = exports.DAMAGE_PER_LEVEL = exports.HEALTH_PER_LEVEL = exports.XP_MULTIPLIER = exports.BASE_XP_REQUIREMENT = exports.KNOCKBACK_RECOVERY_SPEED = exports.KNOCKBACK_FORCE = exports.RESPAWN_INVULNERABILITY_TIME = exports.MAX_INVENTORY_SIZE = exports.ENEMY_TIERS = exports.MAX_SAND_RADIUS = exports.MIN_SAND_RADIUS = exports.SAND_COUNT = exports.DECORATION_COUNT = exports.ENEMY_DAMAGE = exports.PLAYER_DAMAGE = exports.ENEMY_MAX_HEALTH = exports.PLAYER_MAX_HEALTH = exports.ENEMY_CORAL_DAMAGE = exports.ENEMY_CORAL_HEALTH = exports.ENEMY_CORAL_PROBABILITY = exports.OBSTACLE_COUNT = exports.SCALE_FACTOR = exports.ACTUAL_WORLD_HEIGHT = exports.ACTUAL_WORLD_WIDTH = exports.WORLD_HEIGHT = exports.WORLD_WIDTH = exports.items = exports.obstacles = exports.enemies = exports.dots = exports.players = exports.FISH_RETURN_SPEED = exports.PLAYER_BASE_SPEED = exports.FISH_DETECTION_RADIUS = void 0;
+exports.validateWorldMap = validateWorldMap;
+exports.isWall = isWall;
+exports.isSpawn = isSpawn;
+exports.isTeleporter = isTeleporter;
+exports.isSafeZone = isSafeZone;
 // Add these constants at the top with the others
 exports.FISH_DETECTION_RADIUS = 500; // How far fish can detect players
 exports.PLAYER_BASE_SPEED = 5; // Base player speed to match
@@ -12,6 +17,9 @@ exports.obstacles = [];
 exports.items = [];
 exports.WORLD_WIDTH = 20000;
 exports.WORLD_HEIGHT = 20000;
+exports.ACTUAL_WORLD_WIDTH = 20000;
+exports.ACTUAL_WORLD_HEIGHT = 20000;
+exports.SCALE_FACTOR = 1;
 //export let ENEMY_COUNT = 200;
 exports.OBSTACLE_COUNT = 20;
 exports.ENEMY_CORAL_PROBABILITY = 0.3;
@@ -75,3 +83,88 @@ exports.DROP_CHANCES = {
 // Add maze configuration
 exports.MAZE_CELL_SIZE = 1000; // Size of each maze cell
 exports.MAZE_WALL_THICKNESS = 100; // Thickness of maze walls
+// Define the permanent map layout
+exports.WORLD_MAP = [
+    // Border walls
+    {
+        type: 'wall',
+        x: 0,
+        y: 0,
+        width: exports.WORLD_WIDTH,
+        height: 100
+    }, // Top wall
+    {
+        type: 'wall',
+        x: 0,
+        y: exports.WORLD_HEIGHT - 100,
+        width: exports.WORLD_WIDTH,
+        height: 100
+    }, // Bottom wall
+    {
+        type: 'wall',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: exports.WORLD_HEIGHT
+    }, // Left wall
+    {
+        type: 'wall',
+        x: exports.WORLD_WIDTH - 100,
+        y: 0,
+        width: 100,
+        height: exports.WORLD_HEIGHT
+    }, // Right wall
+    // ... (rest of your map elements)
+];
+// Add map validation function
+function validateWorldMap(map) {
+    // Check for required border walls
+    const hasTopWall = map.some(el => el.type === 'wall' && el.y === 0 && el.width === exports.WORLD_WIDTH);
+    const hasBottomWall = map.some(el => el.type === 'wall' && el.y === exports.WORLD_HEIGHT - 100);
+    const hasLeftWall = map.some(el => el.type === 'wall' && el.x === 0);
+    const hasRightWall = map.some(el => el.type === 'wall' && el.x === exports.WORLD_WIDTH - 100);
+    if (!hasTopWall || !hasBottomWall || !hasLeftWall || !hasRightWall) {
+        console.error('Map is missing border walls');
+        return false;
+    }
+    // Check for at least one spawn point per tier
+    const spawnTypes = map
+        .filter(el => el.type === 'spawn')
+        .map(el => { var _a; return (_a = el.properties) === null || _a === void 0 ? void 0 : _a.spawnType; })
+        .filter((type) => type !== undefined);
+    const requiredSpawnTypes = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
+    const hasAllSpawnTypes = requiredSpawnTypes.every(type => spawnTypes.includes(type));
+    if (!hasAllSpawnTypes) {
+        console.error('Map is missing spawn points for some tiers');
+        return false;
+    }
+    // Check for overlapping elements
+    for (let i = 0; i < map.length; i++) {
+        for (let j = i + 1; j < map.length; j++) {
+            if (elementsOverlap(map[i], map[j])) {
+                console.error('Map has overlapping elements:', map[i], map[j]);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+function elementsOverlap(a, b) {
+    return !(a.x + a.width < b.x ||
+        b.x + b.width < a.x ||
+        a.y + a.height < b.y ||
+        b.y + b.height < a.y);
+}
+// Add map element type guards
+function isWall(element) {
+    return element.type === 'wall';
+}
+function isSpawn(element) {
+    return element.type === 'spawn';
+}
+function isTeleporter(element) {
+    return element.type === 'teleporter';
+}
+function isSafeZone(element) {
+    return element.type === 'safe_zone';
+}
