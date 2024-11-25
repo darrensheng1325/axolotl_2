@@ -13,6 +13,10 @@ export interface Enemy {
   health: number;
   speed: number;
   damage: number;
+  knockbackX?: number;
+  knockbackY?: number;
+  wanderTarget?: { x: number; y: number };
+  lastWanderTime?: number;
 }
 
 export interface Obstacle {

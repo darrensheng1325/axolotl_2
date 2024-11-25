@@ -20,6 +20,8 @@ export interface Enemy {
   knockbackX?: number;
   knockbackY?: number;
   isHostile?: boolean;
+  wanderTarget?: { x: number; y: number };
+  lastWanderTime?: number;
 }
 
 export interface Obstacle {

@@ -12,7 +12,7 @@ const app = express();
 
 const decorations: Decoration[] = [];
 const sands: Sand[] = [];
-let ENEMY_COUNT = 200;
+let ENEMY_COUNT = 1000;
 // Add body parser middleware for JSON
 app.use(express.json());
 
@@ -788,11 +788,131 @@ io.on('connection', (socket: AuthenticatedSocket) => {
     });
 });
 
-// Move enemies every 100ms
-setInterval(() => {
-    moveEnemies();
+// Add these constants at the top of the file
+const ENEMY_SPEED_MULTIPLIER = 0.5;
+const ENEMY_CHASE_RANGE = 500;
+const ENEMY_WANDER_RANGE = 200;
+
+function moveEnemies() {
+    const currentTime = Date.now();
+
+    enemies.forEach(enemy => {
+        // Apply knockback if it exists
+        if (enemy.knockbackX) {
+            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.x += enemy.knockbackX;
+            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
+        }
+        if (enemy.knockbackY) {
+            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+            enemy.y += enemy.knockbackY;
+            if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
+        }
+
+        // Find closest player
+        let closestPlayer: ServerPlayer;
+        let closestDistance = Infinity;
+        
+        // Convert players object to array and explicitly type it
+        const playerArray: ServerPlayer[] = Object.values(players);
+        closestPlayer = playerArray[0];
+        
+        playerArray.forEach(player => {
+            const dx = player.x - enemy.x;
+            const dy = player.y - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestPlayer = player;
+            }
+        });
+
+        // Move enemy based on behavior
+        if (closestPlayer && closestDistance < ENEMY_CHASE_RANGE) {
+            // Chase player
+            const dx = closestPlayer.x - enemy.x;
+            const dy = closestPlayer.y - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 0) {
+                const speed = enemy.speed * ENEMY_SPEED_MULTIPLIER;
+                enemy.x += (dx / distance) * speed;
+                enemy.y += (dy / distance) * speed;
+                enemy.angle = Math.atan2(dy, dx);
+            }
+        } else {
+            // Wander randomly
+            if (!enemy.wanderTarget || currentTime - (enemy.lastWanderTime || 0) > 3000) {
+                enemy.wanderTarget = {
+                    x: enemy.x + (Math.random() * 2 - 1) * ENEMY_WANDER_RANGE,
+                    y: enemy.y + (Math.random() * 2 - 1) * ENEMY_WANDER_RANGE
+                };
+                enemy.lastWanderTime = currentTime;
+            }
+
+            if (enemy.wanderTarget) {
+                const dx = enemy.wanderTarget.x - enemy.x;
+                const dy = enemy.wanderTarget.y - enemy.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 5) {
+                    const speed = enemy.speed * ENEMY_SPEED_MULTIPLIER * 0.5; // Slower wandering
+                    enemy.x += (dx / distance) * speed;
+                    enemy.y += (dy / distance) * speed;
+                    enemy.angle = Math.atan2(dy, dx);
+                }
+            }
+        }
+
+        // Constrain to world boundaries
+        enemy.x = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH - ENEMY_SIZE, enemy.x));
+        enemy.y = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT - ENEMY_SIZE, enemy.y));
+
+        // Check for wall collisions
+        WORLD_MAP.filter(isWall).forEach(wall => {
+            const scaledWall = {
+                x: wall.x * SCALE_FACTOR,
+                y: wall.y * SCALE_FACTOR,
+                width: wall.width * SCALE_FACTOR,
+                height: wall.height * SCALE_FACTOR
+            };
+
+            if (enemy.x >= scaledWall.x && 
+                enemy.x <= scaledWall.x + scaledWall.width &&
+                enemy.y >= scaledWall.y && 
+                enemy.y <= scaledWall.y + scaledWall.height) {
+                // Push enemy away from wall
+                const centerX = scaledWall.x + scaledWall.width / 2;
+                const centerY = scaledWall.y + scaledWall.height / 2;
+                const dx = enemy.x - centerX;
+                const dy = enemy.y - centerY;
+                const angle = Math.atan2(dy, dx);
+                
+                enemy.x = scaledWall.x + scaledWall.width / 2 + Math.cos(angle) * (scaledWall.width / 2 + 50);
+                enemy.y = scaledWall.y + scaledWall.height / 2 + Math.sin(angle) * (scaledWall.height / 2 + 50);
+            }
+        });
+    });
+
     io.emit('enemiesUpdate', enemies);
-}, 100);
+}
+
+// Update the start_loop function to use a fixed time step
+async function start_loop() {
+    const TICK_RATE = 60; // 60 updates per second
+    const TICK_TIME = 1000 / TICK_RATE;
+    
+    while (true) {
+        const startTime = Date.now();
+        
+        moveEnemies();
+        
+        const elapsedTime = Date.now() - startTime;
+        const sleepTime = Math.max(0, TICK_TIME - elapsedTime);
+        
+        await new Promise(resolve => setTimeout(resolve, sleepTime));
+    }
+}
 
 httpsServer.listen(PORT, () => {
     console.log(`Server is running on https://localhost:${PORT}`);
@@ -1001,53 +1121,7 @@ app.use('/assets', express.static(path.join(__dirname, '../assets'), {
     }
 }));
 
-// Add the moveEnemies function
-function moveEnemies() {
-    enemies.forEach(enemy => {
-        // Apply knockback if it exists
-        if (enemy.knockbackX) {
-            enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.x += enemy.knockbackX;
-            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
-        }
-        if (enemy.knockbackY) {
-            enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
-            enemy.y += enemy.knockbackY;
-            if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
-        }
-
-        // Constrain to world boundaries
-        enemy.x = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH, enemy.x));
-        enemy.y = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT, enemy.y));
-
-        // Check for wall collisions
-        WORLD_MAP.filter(isWall).forEach(wall => {
-            const scaledWall = {
-                x: wall.x * SCALE_FACTOR,
-                y: wall.y * SCALE_FACTOR,
-                width: wall.width * SCALE_FACTOR,
-                height: wall.height * SCALE_FACTOR
-            };
-
-            if (enemy.x >= scaledWall.x && 
-                enemy.x <= scaledWall.x + scaledWall.width &&
-                enemy.y >= scaledWall.y && 
-                enemy.y <= scaledWall.y + scaledWall.height) {
-                // Push enemy away from wall
-                const centerX = scaledWall.x + scaledWall.width / 2;
-                const centerY = scaledWall.y + scaledWall.height / 2;
-                const dx = enemy.x - centerX;
-                const dy = enemy.y - centerY;
-                const angle = Math.atan2(dy, dx);
-                
-                enemy.x = scaledWall.x + scaledWall.width / 2 + Math.cos(angle) * (scaledWall.width / 2 + 50);
-                enemy.y = scaledWall.y + scaledWall.height / 2 + Math.sin(angle) * (scaledWall.height / 2 + 50);
-            }
-        });
-    });
-
-    io.emit('enemiesUpdate', enemies);
-}
-
 // Add near the top with other static file configurations
 app.use('/favicon.ico', express.static(path.join(__dirname, '../assets/favicon.ico')));
+
+start_loop();
