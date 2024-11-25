@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import { Item } from './item';
 import { workerBlob } from './workerblob';
 import { IMAGE_ASSETS } from './imageAssets';
+import { SVGLoader } from './SVGLoader';
 
 // Add these interfaces at the top of the file
 interface SandboxedScript {
@@ -170,6 +171,10 @@ export class Game {
   private craftingPanel: HTMLDivElement | null = null;
   private craftingSlots: CraftingSlot[] = Array(4).fill(null).map((_, i) => ({ index: i, item: null }));
   private isCraftingOpen: boolean = false;
+  private svgLoader: SVGLoader;
+  // Add to class properties
+  private walls: Array<{x: number, y: number, element: SVGElement}> = [];
+  private readonly WALL_SPACING = 500; // Distance between walls
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -383,6 +388,9 @@ export class Game {
 
       // Add to constructor after other UI initialization
       this.initializeCrafting();
+
+      this.svgLoader = new SVGLoader();
+      this.loadAssets();
   }
 
   private async initializeSprites(): Promise<void> {
@@ -1292,6 +1300,9 @@ export class Game {
           
           this.ctx.restore();
       });
+
+      // In the gameLoop method, add this after drawing the background but before drawing players
+      this.drawWalls();
 
       // Draw players
       this.players.forEach((player, id) => {
@@ -3054,4 +3065,139 @@ export class Game {
           }
       });
   }
+
+  private async loadAssets() {
+      try {
+          // Load SVG assets
+          await this.svgLoader.loadSVG('/src/land.svg');
+          await this.svgLoader.loadSVG('/src/axolotl.svg');
+          await this.initializeWalls(); // Add this line
+      } catch (error) {
+          console.error('Failed to load game assets:', error);
+      }
+  }
+
+  // Example method to render an SVG
+  private renderGameElement(elementId: string, svgPath: string) {
+      const container = document.getElementById(elementId);
+      if (container) {
+          this.svgLoader.renderSVG(svgPath, container);
+      }
+  }
+
+  // Add to class properties
+  private async initializeWalls() {
+    try {
+        // Create a grid-based maze layout
+        const GRID_SIZE = 10; // Size of each grid cell
+        const GRID_COLS = Math.floor(this.WORLD_WIDTH / (this.WALL_SPACING * GRID_SIZE));
+        const GRID_ROWS = Math.floor(this.WORLD_HEIGHT / (this.WALL_SPACING * GRID_SIZE));
+        
+        // Create maze pattern
+        for (let row = 0; row < GRID_ROWS; row++) {
+            for (let col = 0; col < GRID_COLS; col++) {
+                // Add random walls with 30% probability
+                if (Math.random() < 0.3) {
+                    const x = col * this.WALL_SPACING * GRID_SIZE;
+                    const y = row * this.WALL_SPACING * GRID_SIZE;
+                    
+                    // Randomly choose horizontal or vertical wall
+                    if (Math.random() < 0.5) {
+                        // Horizontal wall
+                        for (let i = 0; i < GRID_SIZE; i++) {
+                            const wall = await this.svgLoader.loadSVG('/src/land.svg');
+                            this.walls.push({
+                                x: x + (i * this.WALL_SPACING),
+                                y: y,
+                                element: wall
+                            });
+                        }
+                    } else {
+                        // Vertical wall
+                        for (let i = 0; i < GRID_SIZE; i++) {
+                            const wall = await this.svgLoader.loadSVG('/src/land.svg');
+                            this.walls.push({
+                                x: x,
+                                y: y + (i * this.WALL_SPACING),
+                                element: wall
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Always add boundary walls
+        // Top and bottom walls
+        for (let x = 0; x < this.WORLD_WIDTH; x += this.WALL_SPACING) {
+            const topWall = await this.svgLoader.loadSVG('/src/land.svg');
+            const bottomWall = await this.svgLoader.loadSVG('/src/land.svg');
+            this.walls.push(
+                { x, y: 0, element: topWall },
+                { x, y: this.WORLD_HEIGHT - 100, element: bottomWall }
+            );
+        }
+
+        // Left and right walls
+        for (let y = 0; y < this.WORLD_HEIGHT; y += this.WALL_SPACING) {
+            const leftWall = await this.svgLoader.loadSVG('/src/land.svg');
+            const rightWall = await this.svgLoader.loadSVG('/src/land.svg');
+            this.walls.push(
+                { x: 0, y, element: leftWall },
+                { x: this.WORLD_WIDTH - 100, y, element: rightWall }
+            );
+        }
+
+        console.log(`Generated ${this.walls.length} walls`);
+    } catch (error) {
+        console.error('Failed to initialize walls:', error);
+    }
+}
+
+  // Update the drawWalls method to be more efficient
+  private drawWalls() {
+    // Create a single temporary canvas for all walls
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = 100;
+    tempCanvas.height = 100;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    if (!tempCtx) return;
+
+    this.walls.forEach(wall => {
+        // Only draw walls that are within the viewport
+        if (
+            wall.x + 100 >= this.cameraX && 
+            wall.x <= this.cameraX + this.canvas.width &&
+            wall.y + 100 >= this.cameraY && 
+            wall.y <= this.cameraY + this.canvas.height
+        ) {
+            // Draw the wall
+            this.ctx.save();
+            this.ctx.translate(wall.x, wall.y);
+            
+            // Convert SVG to image if not already converted
+            if (!wall.element.hasAttribute('rendered')) {
+                const svgData = new XMLSerializer().serializeToString(wall.element);
+                const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+                const url = URL.createObjectURL(svgBlob);
+                
+                const img = new Image();
+                img.onload = () => {
+                    tempCtx.clearRect(0, 0, 100, 100);
+                    tempCtx.drawImage(img, 0, 0, 100, 100);
+                    this.ctx.drawImage(tempCanvas, 0, 0);
+                    URL.revokeObjectURL(url);
+                    wall.element.setAttribute('rendered', 'true');
+                };
+                img.src = url;
+            } else {
+                // Use cached rendering
+                this.ctx.drawImage(tempCanvas, 0, 0);
+            }
+            
+            this.ctx.restore();
+        }
+    });
+}
 }
