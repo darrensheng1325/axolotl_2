@@ -141,7 +141,9 @@
             <h2>Login</h2>
             <input type="text" id="loginUsername" placeholder="Username">
             <input type="password" id="loginPassword" placeholder="Password">
-            <input type="text" id="serverIP" placeholder="Server IP">
+            <div class="server-input">
+                <input type="text" id="serverIP-connect" placeholder="Server IP">
+            </div>
             <button id="loginButton">Login</button>
             <p class="form-switch" id="showRegister">Need an account? Register</p>
         </div>
@@ -152,7 +154,9 @@
             <input type="text" id="registerUsername" placeholder="Username">
             <input type="password" id="registerPassword" placeholder="Password">
             <input type="password" id="registerConfirmPassword" placeholder="Confirm Password">
-            <input type="text" id="serverIP" placeholder="Server IP">
+            <div class="single-player">
+                <input type="text" id="serverIP-single" placeholder="Server IP">
+            </div>
             <button id="registerButton">Register</button>
             <button id="registerOfflineButton">Register Offline</button>
             <p class="form-switch" id="showLogin">Already have an account? Login</p>
@@ -199,6 +203,6 @@
     <script>
         console.log('Hello');
     </script>
-    <script src="bundle.js"></script>
+    <script content-type="application/javascript" src="bundle.js"></script>
 </body>
 </html>

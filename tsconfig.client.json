@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "ES2020",
-    "lib": ["ES2020", "DOM"],
+    "lib": ["ES2020", "DOM", "DOM.Iterable", "WebWorker"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -12,5 +12,5 @@
     "moduleResolution": "node"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules"]
-}
+  "exclude": ["node_modules", "src/server.ts", "src/database.ts"]
+} 

@@ -176,6 +176,7 @@ export class Game {
   // Add to class properties
   private walls: Array<{x: number, y: number, element: SVGElement}> = [];
   private readonly WALL_SPACING = 500; // Distance between walls
+  private world_map_data: MapElement[] = [];
 
   // Add map rendering properties
   private readonly MAP_COLORS = {
@@ -400,6 +401,11 @@ export class Game {
 
       this.svgLoader = new SVGLoader();
       this.loadAssets();
+
+      // Listen for map data from the server
+      this.socket.on('mapData', (mapData: MapElement[]) => {
+          this.renderMap(mapData);
+      });
   }
 
   private async initializeSprites(): Promise<void> {
@@ -3000,7 +3006,7 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
 
   private drawMap() {
       // Draw all map elements
-      WORLD_MAP.forEach(element => {
+      this.world_map_data.forEach(element => {
           // No need to scale coordinates since they're already in world space
           const x = element.x;
           const y = element.y;
@@ -3296,5 +3302,11 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
           
           return true;
       });
+  }
+
+  private renderMap(mapData: MapElement[]) {
+      // Store the map data and render it
+      this.world_map_data = mapData; // Assuming WORLD_MAP is mutable or use a separate variable
+      this.drawMap();
   }
 }

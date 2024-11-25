@@ -1,13 +1,4 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -86,7 +77,13 @@ app.post('/auth/logout', (req, res) => {
     res.json({ message: 'Logged out successfully' });
 });
 // Serve static files from the dist directory
-app.use(express_1.default.static(path_1.default.join(__dirname, '../dist')));
+app.use(express_1.default.static(path_1.default.join(__dirname, '../dist'), {
+    setHeaders: (res, path) => {
+        if (path.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        }
+    }
+}));
 const httpsServer = (0, https_1.createServer)({
     key: fs_1.default.readFileSync('cert.key'),
     cert: fs_1.default.readFileSync('cert.crt')
@@ -179,11 +176,8 @@ function createEnemy() {
 // Update respawnPlayer to use spawn points from the map
 function respawnPlayer(player) {
     // Find valid spawn points for player's level
-    const validSpawnPoints = constants_1.WORLD_MAP.filter(element => {
-        var _a;
-        return element.type === 'spawn' &&
-            ((_a = element.properties) === null || _a === void 0 ? void 0 : _a.spawnType) === getSpawnTypeForLevel(player.level);
-    });
+    const validSpawnPoints = constants_1.WORLD_MAP.filter(element => element.type === 'spawn' &&
+        element.properties?.spawnType === getSpawnTypeForLevel(player.level));
     if (validSpawnPoints.length > 0) {
         // Choose random spawn point
         const spawn = validSpawnPoints[Math.floor(Math.random() * validSpawnPoints.length)];
@@ -233,8 +227,10 @@ for (let i = 0; i < constants_1.SAND_COUNT; i++) {
 }
 io.on('connection', (socket) => {
     console.log('A user connected');
+    // Send map data to the client
+    socket.emit('mapData', constants_1.WORLD_MAP);
     // Handle authentication
-    socket.on('authenticate', (credentials) => __awaiter(void 0, void 0, void 0, function* () {
+    socket.on('authenticate', async (credentials) => {
         const user = database_1.database.getUser(credentials.username, credentials.password);
         if (user) {
             socket.userId = user.id;
@@ -251,15 +247,15 @@ io.on('connection', (socket) => {
                 score: 0,
                 velocityX: 0,
                 velocityY: 0,
-                health: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.maxHealth) || constants_1.PLAYER_MAX_HEALTH,
-                maxHealth: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.maxHealth) || constants_1.PLAYER_MAX_HEALTH,
-                damage: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.damage) || constants_1.PLAYER_DAMAGE,
-                inventory: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.inventory) || [],
-                loadout: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.loadout) || Array(10).fill(null),
+                health: savedProgress?.maxHealth || constants_1.PLAYER_MAX_HEALTH,
+                maxHealth: savedProgress?.maxHealth || constants_1.PLAYER_MAX_HEALTH,
+                damage: savedProgress?.damage || constants_1.PLAYER_DAMAGE,
+                inventory: savedProgress?.inventory || [],
+                loadout: savedProgress?.loadout || Array(10).fill(null),
                 isInvulnerable: true,
-                level: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1,
-                xp: (savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.xp) || 0,
-                xpToNextLevel: calculateXPRequirement((savedProgress === null || savedProgress === void 0 ? void 0 : savedProgress.level) || 1)
+                level: savedProgress?.level || 1,
+                xp: savedProgress?.xp || 0,
+                xpToNextLevel: calculateXPRequirement(savedProgress?.level || 1)
             };
             // Save initial state and log the result
             console.log('Saving initial player state');
@@ -291,7 +287,7 @@ io.on('connection', (socket) => {
                 error: 'Invalid credentials'
             });
         }
-    }));
+    });
     // Update disconnect handler
     socket.on('disconnect', () => {
         console.log('A user disconnected');
@@ -459,7 +455,7 @@ io.on('connection', (socket) => {
             return;
         }
         // Find the item in the loadout
-        const loadoutSlot = player.loadout.findIndex(item => (item === null || item === void 0 ? void 0 : item.id) === itemId);
+        const loadoutSlot = player.loadout.findIndex(item => item?.id === itemId);
         console.log('Found item in loadout slot:', loadoutSlot); // Add debug log
         if (loadoutSlot === -1) {
             console.log('Item not found in loadout:', itemId);
@@ -765,7 +761,7 @@ app.post('/admin/save-progress', (req, res) => {
     }
     const player = constants_1.players[playerId];
     const socket = io.sockets.sockets.get(playerId);
-    if (!player || !(socket === null || socket === void 0 ? void 0 : socket.userId)) {
+    if (!player || !socket?.userId) {
         return res.status(404).json({ message: 'Player not found or not authenticated' });
     }
     try {
@@ -786,7 +782,7 @@ process.stdin.on('data', (data) => {
             const playerId = parts[1];
             const player = constants_1.players[playerId];
             const socket = io.sockets.sockets.get(playerId);
-            if (player && (socket === null || socket === void 0 ? void 0 : socket.userId)) {
+            if (player && socket?.userId) {
                 savePlayerProgress(player, socket.userId);
                 socket.emit('savePlayerProgress', player);
                 console.log(`Progress saved for player ${playerId}`);
@@ -800,7 +796,7 @@ process.stdin.on('data', (data) => {
             let savedCount = 0;
             Object.entries(constants_1.players).forEach(([socketId, player]) => {
                 const socket = io.sockets.sockets.get(socketId);
-                if (socket === null || socket === void 0 ? void 0 : socket.userId) {
+                if (socket?.userId) {
                     savePlayerProgress(player, socket.userId);
                     savedCount++;
                 }
@@ -852,9 +848,12 @@ app.use('/assets', (req, res, next) => {
 });
 // If you're serving assets from a specific directory, update the static file serving
 app.use('/assets', express_1.default.static(path_1.default.join(__dirname, '../assets'), {
-    setHeaders: (res, path, stat) => {
+    setHeaders: (res, path) => {
         res.header('Access-Control-Allow-Origin', '*');
         res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+        if (path.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        }
     }
 }));
 // Add the moveEnemies function
@@ -901,3 +900,5 @@ function moveEnemies() {
     });
     io.emit('enemiesUpdate', constants_1.enemies);
 }
+// Add near the top with other static file configurations
+app.use('/favicon.ico', express_1.default.static(path_1.default.join(__dirname, '../assets/favicon.ico')));

@@ -84,7 +84,13 @@ app.post('/auth/logout', (req, res) => {
 });
 
 // Serve static files from the dist directory
-app.use(express.static(path.join(__dirname, '../dist')));
+app.use(express.static(path.join(__dirname, '../dist'), {
+    setHeaders: (res, path) => {
+        if (path.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        }
+    }
+}));
 
 const httpsServer = createServer({
     key: fs.readFileSync('cert.key'),
@@ -258,6 +264,9 @@ interface AuthenticatedSocket extends Socket {
 
 io.on('connection', (socket: AuthenticatedSocket) => {
     console.log('A user connected');
+
+    // Send map data to the client
+    socket.emit('mapData', WORLD_MAP);
 
     // Handle authentication
     socket.on('authenticate', async (credentials: { username: string, password: string, playerName: string }) => {
@@ -983,9 +992,12 @@ app.use('/assets', (req, res, next) => {
 
 // If you're serving assets from a specific directory, update the static file serving
 app.use('/assets', express.static(path.join(__dirname, '../assets'), {
-    setHeaders: (res, path, stat) => {
+    setHeaders: (res, path) => {
         res.header('Access-Control-Allow-Origin', '*');
         res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+        if (path.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        }
     }
 }));
 
@@ -1036,3 +1048,6 @@ function moveEnemies() {
 
     io.emit('enemiesUpdate', enemies);
 }
+
+// Add near the top with other static file configurations
+app.use('/favicon.ico', express.static(path.join(__dirname, '../assets/favicon.ico')));
