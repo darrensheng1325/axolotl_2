@@ -6,8 +6,8 @@ import fs from 'fs';
 import { database } from './database';
 import { ServerPlayer } from './player';
 import { PLAYER_DAMAGE, WORLD_WIDTH, WORLD_HEIGHT, ZONE_BOUNDARIES, ENEMY_TIERS, KNOCKBACK_RECOVERY_SPEED, FISH_DETECTION_RADIUS, ENEMY_SIZE, ENEMY_SIZE_MULTIPLIERS, PLAYER_SIZE, KNOCKBACK_FORCE, DROP_CHANCES, PLAYER_MAX_HEALTH, HEALTH_PER_LEVEL, DAMAGE_PER_LEVEL, BASE_XP_REQUIREMENT, XP_MULTIPLIER, RESPAWN_INVULNERABILITY_TIME, enemies, players, items, dots, obstacles, OBSTACLE_COUNT, ENEMY_CORAL_PROBABILITY, ENEMY_CORAL_HEALTH, SAND_COUNT, DECORATION_COUNT } from './constants';
-import { Enemy, Obstacle, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand } from './server_utils';
-import { Item } from './item';
+import { Enemy, Obstacle, createDecoration, getRandomPositionInZone, Decoration, Sand, createSand, initializeObstacles } from './server_utils';
+import { Item, ItemWithRarity } from './item';
 const app = express();
 
 const decorations: Decoration[] = [];
@@ -229,71 +229,14 @@ function moveEnemies() {
     io.emit('enemiesUpdate', enemies);
 }
 
-function createObstacle(): Obstacle {
-  const isEnemy = Math.random() < ENEMY_CORAL_PROBABILITY;
-  return {
-    id: Math.random().toString(36).substr(2, 9),
-    x: Math.random() * WORLD_WIDTH,
-    y: Math.random() * WORLD_HEIGHT,
-    width: 50 + Math.random() * 50, // Random width between 50 and 100
-    height: 50 + Math.random() * 50, // Random height between 50 and 100
-    type: 'coral',
-    isEnemy: isEnemy,
-    health: isEnemy ? ENEMY_CORAL_HEALTH : undefined
-  };
-}
-
-// Add near the top with other interfaces
-interface ItemWithRarity extends Item {
-    rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
-    onCooldown?: boolean;  // Add cooldown property
-}
-
-// Update the createItem function signature
-function createItem(): ItemWithRarity {
-    const zoneIndex = Math.floor(Math.random() * 6);
-    const pos = getRandomPositionInZone(zoneIndex);
-    
-    // Determine rarity based on zone
-    let rarity: ItemWithRarity['rarity'] = 'common';
-    switch(zoneIndex) {
-        case 0:
-            rarity = 'common';
-            break;
-        case 1:
-            rarity = Math.random() < 0.7 ? 'common' : 'uncommon';
-            break;
-        case 2:
-            rarity = Math.random() < 0.6 ? 'uncommon' : 'rare';
-            break;
-        case 3:
-            rarity = Math.random() < 0.6 ? 'rare' : 'epic';
-            break;
-        case 4:
-            rarity = Math.random() < 0.7 ? 'epic' : 'legendary';
-            break;
-        case 5:
-            rarity = Math.random() < 0.8 ? 'legendary' : 'mythic';
-            break;
-    }
-
-    return {
-        id: Math.random().toString(36).substr(2, 9),
-        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)] as Item['type'],
-        x: pos.x,
-        y: pos.y,
-        rarity
-    };
-}
-
 // Initialize enemies
 for (let i = 0; i < ENEMY_COUNT; i++) {
   enemies.push(createEnemy());
 }
 
-// Initialize obstacles
+// Initialize obstacles with maze
 for (let i = 0; i < OBSTACLE_COUNT; i++) {
-  obstacles.push(createObstacle());
+    obstacles.push(...initializeObstacles());
 }
 
 // Initialize decorations

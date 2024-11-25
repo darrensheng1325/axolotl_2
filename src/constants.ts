@@ -15,8 +15,8 @@ export const enemies: Enemy[] = [];
 export const obstacles: Obstacle[] = [];
 export const items: Item[] = [];
 
-export const WORLD_WIDTH = 10000;
-export const WORLD_HEIGHT = 2000;
+export const WORLD_WIDTH = 20000;
+export const WORLD_HEIGHT = 20000;
 //export let ENEMY_COUNT = 200;
 export const OBSTACLE_COUNT = 20;
 export const ENEMY_CORAL_PROBABILITY = 0.3;
@@ -59,12 +59,12 @@ export const ENEMY_SIZE = 40;
 
 // Define zone boundaries for different tiers
 export const ZONE_BOUNDARIES = {
-    common: { start: 0, end: 2000 },
-    uncommon: { start: 2000, end: 4000 },
-    rare: { start: 4000, end: 6000 },
-    epic: { start: 6000, end: 8000 },
-    legendary: { start: 8000, end: 9000 },
-    mythic: { start: 9000, end: WORLD_WIDTH }
+    common: { start: 0, end: 4000 },
+    uncommon: { start: 4000, end: 8000 },
+    rare: { start: 8000, end: 12000 },
+    epic: { start: 12000, end: 16000 },
+    legendary: { start: 16000, end: 18000 },
+    mythic: { start: 18000, end: WORLD_WIDTH }
 };
 
 // Add enemy size multipliers like in singleplayer
@@ -86,3 +86,7 @@ export const DROP_CHANCES = {
     legendary: 1,   // 50% chance
     mythic: 1      // 75% chance
 };
+
+// Add maze configuration
+export const MAZE_CELL_SIZE = 1000;  // Size of each maze cell
+export const MAZE_WALL_THICKNESS = 100;  // Thickness of maze walls

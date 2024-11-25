@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DROP_CHANCES = exports.ENEMY_SIZE_MULTIPLIERS = exports.ZONE_BOUNDARIES = exports.ENEMY_SIZE = exports.PLAYER_SIZE = exports.DAMAGE_PER_LEVEL = exports.HEALTH_PER_LEVEL = exports.XP_MULTIPLIER = exports.BASE_XP_REQUIREMENT = exports.KNOCKBACK_RECOVERY_SPEED = exports.KNOCKBACK_FORCE = exports.RESPAWN_INVULNERABILITY_TIME = exports.MAX_INVENTORY_SIZE = exports.ENEMY_TIERS = exports.MAX_SAND_RADIUS = exports.MIN_SAND_RADIUS = exports.SAND_COUNT = exports.DECORATION_COUNT = exports.ENEMY_DAMAGE = exports.PLAYER_DAMAGE = exports.ENEMY_MAX_HEALTH = exports.PLAYER_MAX_HEALTH = exports.ENEMY_CORAL_DAMAGE = exports.ENEMY_CORAL_HEALTH = exports.ENEMY_CORAL_PROBABILITY = exports.OBSTACLE_COUNT = exports.WORLD_HEIGHT = exports.WORLD_WIDTH = exports.items = exports.obstacles = exports.enemies = exports.dots = exports.players = exports.FISH_RETURN_SPEED = exports.PLAYER_BASE_SPEED = exports.FISH_DETECTION_RADIUS = void 0;
+exports.MAZE_WALL_THICKNESS = exports.MAZE_CELL_SIZE = exports.DROP_CHANCES = exports.ENEMY_SIZE_MULTIPLIERS = exports.ZONE_BOUNDARIES = exports.ENEMY_SIZE = exports.PLAYER_SIZE = exports.DAMAGE_PER_LEVEL = exports.HEALTH_PER_LEVEL = exports.XP_MULTIPLIER = exports.BASE_XP_REQUIREMENT = exports.KNOCKBACK_RECOVERY_SPEED = exports.KNOCKBACK_FORCE = exports.RESPAWN_INVULNERABILITY_TIME = exports.MAX_INVENTORY_SIZE = exports.ENEMY_TIERS = exports.MAX_SAND_RADIUS = exports.MIN_SAND_RADIUS = exports.SAND_COUNT = exports.DECORATION_COUNT = exports.ENEMY_DAMAGE = exports.PLAYER_DAMAGE = exports.ENEMY_MAX_HEALTH = exports.PLAYER_MAX_HEALTH = exports.ENEMY_CORAL_DAMAGE = exports.ENEMY_CORAL_HEALTH = exports.ENEMY_CORAL_PROBABILITY = exports.OBSTACLE_COUNT = exports.WORLD_HEIGHT = exports.WORLD_WIDTH = exports.items = exports.obstacles = exports.enemies = exports.dots = exports.players = exports.FISH_RETURN_SPEED = exports.PLAYER_BASE_SPEED = exports.FISH_DETECTION_RADIUS = void 0;
 // Add these constants at the top with the others
 exports.FISH_DETECTION_RADIUS = 500; // How far fish can detect players
 exports.PLAYER_BASE_SPEED = 5; // Base player speed to match
@@ -10,8 +10,8 @@ exports.dots = [];
 exports.enemies = [];
 exports.obstacles = [];
 exports.items = [];
-exports.WORLD_WIDTH = 10000;
-exports.WORLD_HEIGHT = 2000;
+exports.WORLD_WIDTH = 20000;
+exports.WORLD_HEIGHT = 20000;
 //export let ENEMY_COUNT = 200;
 exports.OBSTACLE_COUNT = 20;
 exports.ENEMY_CORAL_PROBABILITY = 0.3;
@@ -47,12 +47,12 @@ exports.PLAYER_SIZE = 40;
 exports.ENEMY_SIZE = 40;
 // Define zone boundaries for different tiers
 exports.ZONE_BOUNDARIES = {
-    common: { start: 0, end: 2000 },
-    uncommon: { start: 2000, end: 4000 },
-    rare: { start: 4000, end: 6000 },
-    epic: { start: 6000, end: 8000 },
-    legendary: { start: 8000, end: 9000 },
-    mythic: { start: 9000, end: exports.WORLD_WIDTH }
+    common: { start: 0, end: 4000 },
+    uncommon: { start: 4000, end: 8000 },
+    rare: { start: 8000, end: 12000 },
+    epic: { start: 12000, end: 16000 },
+    legendary: { start: 16000, end: 18000 },
+    mythic: { start: 18000, end: exports.WORLD_WIDTH }
 };
 // Add enemy size multipliers like in singleplayer
 exports.ENEMY_SIZE_MULTIPLIERS = {
@@ -72,3 +72,6 @@ exports.DROP_CHANCES = {
     legendary: 1, // 50% chance
     mythic: 1 // 75% chance
 };
+// Add maze configuration
+exports.MAZE_CELL_SIZE = 1000; // Size of each maze cell
+exports.MAZE_WALL_THICKNESS = 100; // Thickness of maze walls

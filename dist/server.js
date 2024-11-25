@@ -214,60 +214,13 @@ function moveEnemies() {
     });
     io.emit('enemiesUpdate', constants_1.enemies);
 }
-function createObstacle() {
-    const isEnemy = Math.random() < constants_1.ENEMY_CORAL_PROBABILITY;
-    return {
-        id: Math.random().toString(36).substr(2, 9),
-        x: Math.random() * constants_1.WORLD_WIDTH,
-        y: Math.random() * constants_1.WORLD_HEIGHT,
-        width: 50 + Math.random() * 50, // Random width between 50 and 100
-        height: 50 + Math.random() * 50, // Random height between 50 and 100
-        type: 'coral',
-        isEnemy: isEnemy,
-        health: isEnemy ? constants_1.ENEMY_CORAL_HEALTH : undefined
-    };
-}
-// Update the createItem function signature
-function createItem() {
-    const zoneIndex = Math.floor(Math.random() * 6);
-    const pos = (0, server_utils_1.getRandomPositionInZone)(zoneIndex);
-    // Determine rarity based on zone
-    let rarity = 'common';
-    switch (zoneIndex) {
-        case 0:
-            rarity = 'common';
-            break;
-        case 1:
-            rarity = Math.random() < 0.7 ? 'common' : 'uncommon';
-            break;
-        case 2:
-            rarity = Math.random() < 0.6 ? 'uncommon' : 'rare';
-            break;
-        case 3:
-            rarity = Math.random() < 0.6 ? 'rare' : 'epic';
-            break;
-        case 4:
-            rarity = Math.random() < 0.7 ? 'epic' : 'legendary';
-            break;
-        case 5:
-            rarity = Math.random() < 0.8 ? 'legendary' : 'mythic';
-            break;
-    }
-    return {
-        id: Math.random().toString(36).substr(2, 9),
-        type: ['health_potion', 'speed_boost', 'shield'][Math.floor(Math.random() * 3)],
-        x: pos.x,
-        y: pos.y,
-        rarity
-    };
-}
 // Initialize enemies
 for (let i = 0; i < ENEMY_COUNT; i++) {
     constants_1.enemies.push(createEnemy());
 }
-// Initialize obstacles
+// Initialize obstacles with maze
 for (let i = 0; i < constants_1.OBSTACLE_COUNT; i++) {
-    constants_1.obstacles.push(createObstacle());
+    constants_1.obstacles.push(...(0, server_utils_1.initializeObstacles)());
 }
 // Initialize decorations
 for (let i = 0; i < constants_1.DECORATION_COUNT; i++) {
