@@ -15,10 +15,9 @@ class Game {
         this.dots = [];
         this.DOT_SIZE = 5;
         this.DOT_COUNT = 20;
-        // Reduce these values for even slower movement
-        this.PLAYER_ACCELERATION = 0.2; // Reduced from 0.5 to 0.2
-        this.MAX_SPEED = 4; // Reduced from 8 to 4
-        this.FRICTION = 0.92; // Increased friction from 0.95 to 0.92 for even quicker deceleration
+        this.PLAYER_ACCELERATION = 0.5; // Adjusted for smoother acceleration
+        this.MAX_SPEED = 6; // Balanced speed
+        this.FRICTION = 0.95; // Smoother deceleration
         this.cameraX = 0;
         this.cameraY = 0;
         this.WORLD_WIDTH = constants_1.ACTUAL_WORLD_WIDTH; // Increased from 2000 to 10000
@@ -129,6 +128,8 @@ class Game {
             teleporter: 'rgba(33, 150, 243, 0.5)',
             safe_zone: 'rgba(255, 193, 7, 0.2)'
         };
+        this.lastUpdateTime = 0; // Add this property for delta time
+        this.lastServerUpdate = 0; // Add this property for server update time
         //console.log('Game constructor called');
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
@@ -728,89 +729,65 @@ class Game {
         }
     }
     updatePlayerVelocity() {
-        const player = this.isSinglePlayer ?
-            this.players.get('player1') :
-            this.players.get(this.socket?.id || '');
-        if (player) {
-            if (this.useMouseControls) {
-                // Mouse controls
-                const dx = this.mouseX - player.x;
-                const dy = this.mouseY - player.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance > 5) { // Add dead zone to prevent jittering
-                    player.velocityX += (dx / distance) * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-                    player.velocityY += (dy / distance) * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-                    player.angle = Math.atan2(dy, dx);
-                }
-                else {
-                    player.velocityX *= this.FRICTION;
-                    player.velocityY *= this.FRICTION;
-                }
+        const player = this.players.get(this.socket?.id || '');
+        if (!player)
+            return;
+        if (this.useMouseControls) {
+            // Mouse controls
+            const dx = this.mouseX - player.x;
+            const dy = this.mouseY - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance > 5) { // Add dead zone to prevent jittering
+                const acceleration = this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
+                // Set velocity directly instead of adding to it
+                player.velocityX = (dx / distance) * this.MAX_SPEED;
+                player.velocityY = (dy / distance) * this.MAX_SPEED;
+                player.angle = Math.atan2(dy, dx);
             }
             else {
-                // Keyboard controls (existing code)
-                let dx = 0;
-                let dy = 0;
-                if (this.keysPressed.has('ArrowUp'))
-                    dy -= 1;
-                if (this.keysPressed.has('ArrowDown'))
-                    dy += 1;
-                if (this.keysPressed.has('ArrowLeft'))
-                    dx -= 1;
-                if (this.keysPressed.has('ArrowRight'))
-                    dx += 1;
-                if (dx !== 0 || dy !== 0) {
-                    player.angle = Math.atan2(dy, dx);
-                    if (dx !== 0 && dy !== 0) {
-                        const length = Math.sqrt(dx * dx + dy * dy);
-                        dx /= length;
-                        dy /= length;
-                    }
-                    player.velocityX += dx * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-                    player.velocityY += dy * this.PLAYER_ACCELERATION * (this.speedBoostActive ? 3 : 1);
-                }
-                else {
-                    player.velocityX *= this.FRICTION;
-                    player.velocityY *= this.FRICTION;
-                }
-            }
-            // Limit speed
-            const speed = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
-            if (speed > this.MAX_SPEED) {
-                const ratio = this.MAX_SPEED / speed;
-                player.velocityX *= ratio;
-                player.velocityY *= ratio;
-            }
-            // Update position
-            const newX = player.x + player.velocityX;
-            const newY = player.y + player.velocityY;
-            // Check world bounds
-            player.x = Math.max(0, Math.min(this.WORLD_WIDTH, newX));
-            player.y = Math.max(0, Math.min(this.WORLD_HEIGHT, newY));
-            // Send update to server/worker
-            if (this.isSinglePlayer) {
-                this.worker?.postMessage({
-                    type: 'socketEvent',
-                    event: 'playerMovement',
-                    data: {
-                        x: player.x,
-                        y: player.y,
-                        angle: player.angle,
-                        velocityX: player.velocityX,
-                        velocityY: player.velocityY
-                    }
-                });
-            }
-            else {
-                this.socket.emit('playerMovement', {
-                    x: player.x,
-                    y: player.y,
-                    angle: player.angle,
-                    velocityX: player.velocityX,
-                    velocityY: player.velocityY
-                });
+                player.velocityX = 0;
+                player.velocityY = 0;
             }
         }
+        else {
+            // Keyboard controls
+            let dx = 0;
+            let dy = 0;
+            if (this.keysPressed.has('ArrowUp') || this.keysPressed.has('w'))
+                dy -= 1;
+            if (this.keysPressed.has('ArrowDown') || this.keysPressed.has('s'))
+                dy += 1;
+            if (this.keysPressed.has('ArrowLeft') || this.keysPressed.has('a'))
+                dx -= 1;
+            if (this.keysPressed.has('ArrowRight') || this.keysPressed.has('d'))
+                dx += 1;
+            if (dx !== 0 || dy !== 0) {
+                // Normalize diagonal movement
+                if (dx !== 0 && dy !== 0) {
+                    const length = Math.sqrt(dx * dx + dy * dy);
+                    dx /= length;
+                    dy /= length;
+                }
+                // Set velocity directly instead of accumulating
+                const speed = this.MAX_SPEED * (this.speedBoostActive ? 3 : 1);
+                player.velocityX = dx * speed;
+                player.velocityY = dy * speed;
+                player.angle = Math.atan2(dy, dx);
+            }
+            else {
+                // If no keys are pressed, stop movement
+                player.velocityX = 0;
+                player.velocityY = 0;
+            }
+        }
+        // Send update to server
+        this.socket.emit('playerMovement', {
+            x: player.x,
+            y: player.y,
+            angle: player.angle,
+            velocityX: player.velocityX,
+            velocityY: player.velocityY
+        });
     }
     updateCamera(player) {
         // Center camera on player
@@ -832,15 +809,31 @@ class Game {
         }
     }
     updatePlayerPosition(player) {
+        if (!player)
+            return;
         // Calculate new position with velocity
-        const newX = player.x + player.velocityX;
-        const newY = player.y + player.velocityY;
-        // Check collision with map elements
-        let collision = false;
+        let newX = player.x + player.velocityX;
+        let newY = player.y + player.velocityY;
+        // Apply knockback if it exists
+        if (player.knockbackX) {
+            player.knockbackX *= this.FRICTION;
+            newX += player.knockbackX;
+            if (Math.abs(player.knockbackX) < 0.1)
+                player.knockbackX = 0;
+        }
+        if (player.knockbackY) {
+            player.knockbackY *= this.FRICTION;
+            newY += player.knockbackY;
+            if (Math.abs(player.knockbackY) < 0.1)
+                player.knockbackY = 0;
+        }
+        // Constrain to world bounds
+        newX = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_WIDTH - constants_1.PLAYER_SIZE, newX));
+        newY = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_HEIGHT - constants_1.PLAYER_SIZE, newY));
         // Check wall collisions
-        for (const element of constants_1.WORLD_MAP) {
+        let collision = false;
+        for (const element of this.world_map_data) {
             if ((0, constants_1.isWall)(element)) {
-                // No need to scale the player position since it's already in world coordinates
                 if (newX < element.x + element.width &&
                     newX + constants_1.PLAYER_SIZE > element.x &&
                     newY < element.y + element.height &&
@@ -853,8 +846,8 @@ class Game {
                     const dy = player.y - centerY;
                     const angle = Math.atan2(dy, dx);
                     // Push player away from wall
-                    player.x = element.x + element.width / 2 + Math.cos(angle) * (element.width / 2 + constants_1.PLAYER_SIZE);
-                    player.y = element.y + element.height / 2 + Math.sin(angle) * (element.height / 2 + constants_1.PLAYER_SIZE);
+                    newX = element.x + element.width / 2 + Math.cos(angle) * (element.width / 2 + constants_1.PLAYER_SIZE);
+                    newY = element.y + element.height / 2 + Math.sin(angle) * (element.height / 2 + constants_1.PLAYER_SIZE);
                     // Stop movement in collision direction
                     player.velocityX = 0;
                     player.velocityY = 0;
@@ -862,39 +855,9 @@ class Game {
                 }
             }
         }
-        if (!collision) {
-            // Update position if no collision, constrain to world bounds
-            player.x = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_WIDTH - constants_1.PLAYER_SIZE, newX));
-            player.y = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_HEIGHT - constants_1.PLAYER_SIZE, newY));
-        }
-        // Check for teleporters
-        constants_1.WORLD_MAP.filter(constants_1.isTeleporter).forEach(teleporter => {
-            if (player.x >= teleporter.x &&
-                player.x <= teleporter.x + teleporter.width &&
-                player.y >= teleporter.y &&
-                player.y <= teleporter.y + teleporter.height &&
-                teleporter.properties?.teleportTo) {
-                // Teleport player
-                player.x = teleporter.properties.teleportTo.x;
-                player.y = teleporter.properties.teleportTo.y;
-                // Add teleport effect
-                this.showFloatingText(player.x, player.y, "Teleported!", "#2196F3", 20);
-            }
-        });
-        // Update player angle based on velocity
-        if (player.velocityX !== 0 || player.velocityY !== 0) {
-            player.angle = Math.atan2(player.velocityY, player.velocityX);
-        }
-        // Update server
-        this.socket.emit('playerMovement', {
-            x: player.x,
-            y: player.y,
-            angle: player.angle,
-            velocityX: player.velocityX,
-            velocityY: player.velocityY
-        });
-        // Update camera
-        this.updateCamera(player);
+        // Update player position
+        player.x = newX;
+        player.y = newY;
     }
     generateDots() {
         for (let i = 0; i < this.DOT_COUNT; i++) {
@@ -989,21 +952,25 @@ class Game {
         enemiesData.forEach(enemy => this.enemies.set(enemy.id, enemy));
     }
     gameLoop() {
-        // Clear the entire canvas
+        // Calculate delta time
+        const currentTime = performance.now();
+        const deltaTime = (currentTime - this.lastUpdateTime) / 16.67; // Normalize to ~60 FPS
+        this.lastUpdateTime = currentTime;
+        // Clear the canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        // Draw ocean background for the entire visible area
         this.ctx.fillStyle = '#00FFFF';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        // Get current player for camera
+        // Get current player and update
         const currentSocketId = this.socket?.id;
+        let currentPlayer = undefined;
         if (currentSocketId) {
-            const currentPlayer = this.players.get(currentSocketId);
+            currentPlayer = this.players.get(currentSocketId);
             if (currentPlayer) {
+                this.updatePlayerMovement(currentPlayer, deltaTime);
                 this.updateCamera(currentPlayer);
             }
         }
         this.ctx.save();
-        // Apply camera transform
         this.ctx.translate(-this.cameraX, -this.cameraY);
         // Draw world bounds
         this.ctx.strokeStyle = 'black';
@@ -1034,8 +1001,99 @@ class Game {
         this.ctx.restore();
         // Draw UI elements (after restore)
         this.drawUI();
-        // Continue game loop
-        this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
+        requestAnimationFrame(() => this.gameLoop());
+    }
+    updatePlayerMovement(player, deltaTime) {
+        const currentTime = performance.now(); // Add this line at the start of the method
+        // Calculate desired velocity based on input
+        let targetVelocityX = 0;
+        let targetVelocityY = 0;
+        if (this.useMouseControls) {
+            const dx = this.mouseX - player.x;
+            const dy = this.mouseY - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance > 5) {
+                const speed = this.MAX_SPEED * (this.speedBoostActive ? 2 : 1);
+                targetVelocityX = (dx / distance) * speed;
+                targetVelocityY = (dy / distance) * speed;
+                player.angle = Math.atan2(dy, dx);
+            }
+        }
+        else {
+            // Keyboard controls
+            if (this.keysPressed.has('ArrowLeft') || this.keysPressed.has('a'))
+                targetVelocityX -= 1;
+            if (this.keysPressed.has('ArrowRight') || this.keysPressed.has('d'))
+                targetVelocityX += 1;
+            if (this.keysPressed.has('ArrowUp') || this.keysPressed.has('w'))
+                targetVelocityY -= 1;
+            if (this.keysPressed.has('ArrowDown') || this.keysPressed.has('s'))
+                targetVelocityY += 1;
+            // Normalize diagonal movement
+            if (targetVelocityX !== 0 && targetVelocityY !== 0) {
+                const length = Math.sqrt(targetVelocityX * targetVelocityX + targetVelocityY * targetVelocityY);
+                targetVelocityX /= length;
+                targetVelocityY /= length;
+            }
+            // Apply speed
+            const speed = this.MAX_SPEED * (this.speedBoostActive ? 2 : 1);
+            targetVelocityX *= speed;
+            targetVelocityY *= speed;
+            if (targetVelocityX !== 0 || targetVelocityY !== 0) {
+                player.angle = Math.atan2(targetVelocityY, targetVelocityX);
+            }
+        }
+        // Smoothly interpolate current velocity to target velocity
+        const interpolationFactor = 1 - Math.pow(this.FRICTION, deltaTime);
+        player.velocityX += (targetVelocityX - player.velocityX) * interpolationFactor;
+        player.velocityY += (targetVelocityY - player.velocityY) * interpolationFactor;
+        // Apply movement
+        const newX = player.x + player.velocityX * deltaTime;
+        const newY = player.y + player.velocityY * deltaTime;
+        // Check world bounds and collisions
+        const [finalX, finalY] = this.checkCollisions(player, newX, newY);
+        player.x = finalX;
+        player.y = finalY;
+        // Send update to server less frequently
+        if (currentTime - this.lastServerUpdate > 50) { // 20 updates per second
+            this.socket.emit('playerMovement', {
+                x: player.x,
+                y: player.y,
+                angle: player.angle,
+                velocityX: player.velocityX,
+                velocityY: player.velocityY
+            });
+            this.lastServerUpdate = currentTime;
+        }
+    }
+    checkCollisions(player, newX, newY) {
+        // World bounds
+        let finalX = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_WIDTH - constants_1.PLAYER_SIZE, newX));
+        let finalY = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_HEIGHT - constants_1.PLAYER_SIZE, newY));
+        // Wall collisions
+        for (const element of this.world_map_data) {
+            if ((0, constants_1.isWall)(element)) {
+                if (finalX < element.x + element.width &&
+                    finalX + constants_1.PLAYER_SIZE > element.x &&
+                    finalY < element.y + element.height &&
+                    finalY + constants_1.PLAYER_SIZE > element.y) {
+                    // Resolve collision
+                    const fromCenterX = player.x - (element.x + element.width / 2);
+                    const fromCenterY = player.y - (element.y + element.height / 2);
+                    const angle = Math.atan2(fromCenterY, fromCenterX);
+                    finalX = element.x + element.width / 2 + Math.cos(angle) * (element.width / 2 + constants_1.PLAYER_SIZE);
+                    finalY = element.y + element.height / 2 + Math.sin(angle) * (element.height / 2 + constants_1.PLAYER_SIZE);
+                    // Zero out velocity in collision direction
+                    if (Math.abs(fromCenterX) > Math.abs(fromCenterY)) {
+                        player.velocityX = 0;
+                    }
+                    else {
+                        player.velocityY = 0;
+                    }
+                }
+            }
+        }
+        return [finalX, finalY];
     }
     drawGameObjects() {
         // Draw only objects that are within the viewport
