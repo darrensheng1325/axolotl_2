@@ -789,7 +789,7 @@ io.on('connection', (socket: AuthenticatedSocket) => {
 });
 
 // Add these constants at the top of the file
-const ENEMY_SPEED_MULTIPLIER = 0.5;
+const ENEMY_SPEED_MULTIPLIER = 2;
 const ENEMY_CHASE_RANGE = 500;
 const ENEMY_WANDER_RANGE = 200;
 
@@ -828,7 +828,7 @@ function moveEnemies() {
         });
 
         // Move enemy based on behavior
-        if (closestPlayer && closestDistance < ENEMY_CHASE_RANGE) {
+        if (closestPlayer && closestDistance < ENEMY_CHASE_RANGE && enemy.type === 'fish') {
             // Chase player
             const dx = closestPlayer.x - enemy.x;
             const dy = closestPlayer.y - enemy.y;
