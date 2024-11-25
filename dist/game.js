@@ -77,8 +77,8 @@ class Game {
         // Add property to track if player is dead
         this.isPlayerDead = false;
         // Add minimap properties
-        this.MINIMAP_WIDTH = 200;
-        this.MINIMAP_HEIGHT = 40;
+        this.MINIMAP_WIDTH = 200; // Increased from 40
+        this.MINIMAP_HEIGHT = 200; // Made square for better visibility
         this.MINIMAP_PADDING = 10;
         // Add decoration-related properties
         this.decorations = [];
@@ -1288,23 +1288,49 @@ class Game {
             x: this.MINIMAP_WIDTH / constants_1.ACTUAL_WORLD_WIDTH,
             y: this.MINIMAP_HEIGHT / constants_1.ACTUAL_WORLD_HEIGHT
         };
-        // Draw minimap background
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        // Draw minimap background (white instead of black)
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
-        // Draw viewport rectangle on minimap
-        const viewportRect = {
-            x: minimapX + (this.cameraX * minimapScale.x),
-            y: minimapY + (this.cameraY * minimapScale.y),
-            width: (this.canvas.width * minimapScale.x),
-            height: (this.canvas.height * minimapScale.y)
-        };
-        this.ctx.strokeStyle = 'white';
-        this.ctx.strokeRect(viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
-        // Draw players on minimap
-        this.players.forEach(player => {
-            this.ctx.fillStyle = player.id === this.socket.id ? 'yellow' : 'red';
-            this.ctx.fillRect(minimapX + (player.x * minimapScale.x), minimapY + (player.y * minimapScale.y), 3, 3);
+        // Draw map elements with solid, inverted colors
+        this.world_map_data.forEach(element => {
+            const scaledX = minimapX + (element.x * minimapScale.x);
+            const scaledY = minimapY + (element.y * minimapScale.y);
+            const scaledWidth = element.width * minimapScale.x;
+            const scaledHeight = element.height * minimapScale.y;
+            switch (element.type) {
+                case 'wall':
+                    this.ctx.fillStyle = '#000000'; // Black for walls
+                    break;
+                case 'spawn':
+                    this.ctx.fillStyle = '#00AA00'; // Dark green for spawn
+                    break;
+                case 'teleporter':
+                    this.ctx.fillStyle = '#0066FF'; // Blue for teleporters
+                    break;
+                case 'safe_zone':
+                    this.ctx.fillStyle = '#FFD700'; // Gold for safe zones
+                    break;
+                default:
+                    this.ctx.fillStyle = '#444444'; // Dark gray for unknown
+            }
+            this.ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
         });
+        // Draw all players on minimap with solid colors
+        this.players.forEach(player => {
+            this.ctx.fillStyle = player.id === this.socket.id ? '#FF0000' : '#000000'; // Red for current player, black for others
+            this.ctx.beginPath();
+            this.ctx.arc(minimapX + (player.x * minimapScale.x), minimapY + (player.y * minimapScale.y), 4, // Slightly larger dots
+            0, Math.PI * 2);
+            this.ctx.fill();
+        });
+        // Draw viewport rectangle in black
+        this.ctx.strokeStyle = '#000000';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(minimapX + (this.cameraX * minimapScale.x), minimapY + (this.cameraY * minimapScale.y), (this.canvas.width * minimapScale.x), (this.canvas.height * minimapScale.y));
+        // Draw border
+        this.ctx.strokeStyle = '#000000';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
     }
     hideTitleScreen() {
         if (this.titleScreen) {

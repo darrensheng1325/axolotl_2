@@ -117,8 +117,8 @@ export class Game {
   // Add property to track if player is dead
   private isPlayerDead: boolean = false;
   // Add minimap properties
-  private readonly MINIMAP_WIDTH = 200;
-  private readonly MINIMAP_HEIGHT = 40;
+  private readonly MINIMAP_WIDTH = 200;  // Increased from 40
+  private readonly MINIMAP_HEIGHT = 200; // Made square for better visibility
   private readonly MINIMAP_PADDING = 10;
   // Add decoration-related properties
   private decorations: Array<{
@@ -1589,39 +1589,73 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
 
   // Add minimap drawing
   private drawMinimap() {
-      const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
-      const minimapY = this.MINIMAP_PADDING;
-      const minimapScale = {
-          x: this.MINIMAP_WIDTH / ACTUAL_WORLD_WIDTH,
-          y: this.MINIMAP_HEIGHT / ACTUAL_WORLD_HEIGHT
-      };
+    const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
+    const minimapY = this.MINIMAP_PADDING;
+    const minimapScale = {
+        x: this.MINIMAP_WIDTH / ACTUAL_WORLD_WIDTH,
+        y: this.MINIMAP_HEIGHT / ACTUAL_WORLD_HEIGHT
+    };
 
-      // Draw minimap background
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
+    // Draw minimap background (white instead of black)
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
 
-      // Draw viewport rectangle on minimap
-      const viewportRect = {
-          x: minimapX + (this.cameraX * minimapScale.x),
-          y: minimapY + (this.cameraY * minimapScale.y),
-          width: (this.canvas.width * minimapScale.x),
-          height: (this.canvas.height * minimapScale.y)
-      };
+    // Draw map elements with solid, inverted colors
+    this.world_map_data.forEach(element => {
+        const scaledX = minimapX + (element.x * minimapScale.x);
+        const scaledY = minimapY + (element.y * minimapScale.y);
+        const scaledWidth = element.width * minimapScale.x;
+        const scaledHeight = element.height * minimapScale.y;
 
-      this.ctx.strokeStyle = 'white';
-      this.ctx.strokeRect(viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
+        switch (element.type) {
+            case 'wall':
+                this.ctx.fillStyle = '#000000'; // Black for walls
+                break;
+            case 'spawn':
+                this.ctx.fillStyle = '#00AA00'; // Dark green for spawn
+                break;
+            case 'teleporter':
+                this.ctx.fillStyle = '#0066FF'; // Blue for teleporters
+                break;
+            case 'safe_zone':
+                this.ctx.fillStyle = '#FFD700'; // Gold for safe zones
+                break;
+            default:
+                this.ctx.fillStyle = '#444444'; // Dark gray for unknown
+        }
 
-      // Draw players on minimap
-      this.players.forEach(player => {
-          this.ctx.fillStyle = player.id === this.socket.id ? 'yellow' : 'red';
-          this.ctx.fillRect(
-              minimapX + (player.x * minimapScale.x),
-              minimapY + (player.y * minimapScale.y),
-              3,
-              3
-          );
-      });
-  }
+        this.ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
+    });
+
+    // Draw all players on minimap with solid colors
+    this.players.forEach(player => {
+        this.ctx.fillStyle = player.id === this.socket.id ? '#FF0000' : '#000000'; // Red for current player, black for others
+        this.ctx.beginPath();
+        this.ctx.arc(
+            minimapX + (player.x * minimapScale.x),
+            minimapY + (player.y * minimapScale.y),
+            4, // Slightly larger dots
+            0,
+            Math.PI * 2
+        );
+        this.ctx.fill();
+    });
+
+    // Draw viewport rectangle in black
+    this.ctx.strokeStyle = '#000000';
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeRect(
+        minimapX + (this.cameraX * minimapScale.x),
+        minimapY + (this.cameraY * minimapScale.y),
+        (this.canvas.width * minimapScale.x),
+        (this.canvas.height * minimapScale.y)
+    );
+
+    // Draw border
+    this.ctx.strokeStyle = '#000000';
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
+}
 
   private hideTitleScreen() {
       if (this.titleScreen) {
