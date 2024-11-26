@@ -1550,7 +1550,8 @@ function createEnemy() {
         speed: 2,
         damage: 10,
         knockbackX: 0,
-        knockbackY: 0
+        knockbackY: 0,
+        size: ENEMY_SIZE
     };
 }
 
@@ -1574,22 +1575,26 @@ function createDecoration() {
 
 function moveEnemies() {
     enemies.forEach(enemy => {
-        if (enemy.knockbackX) {
+        // Handle knockback
+        if (enemy.knockbackX || enemy.knockbackY) {
+            enemy.x += enemy.knockbackX;
+            enemy.y += enemy.knockbackY;
+            
             enemy.knockbackX *= KNOCKBACK_RECOVERY_SPEED;
-            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
-        }
-        if (enemy.knockbackY) {
             enemy.knockbackY *= KNOCKBACK_RECOVERY_SPEED;
+
+            if (Math.abs(enemy.knockbackX) < 0.1) enemy.knockbackX = 0;
             if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
         }
 
         // Simple random movement
-        enemy.x += (Math.random() * 2 - 1) * enemy.speed;
-        enemy.y += (Math.random() * 2 - 1) * enemy.speed;
+        const angle = Math.random() * Math.PI * 2;
+        enemy.x += Math.cos(angle) * enemy.speed;
+        enemy.y += Math.sin(angle) * enemy.speed;
 
         // Keep within bounds
-        enemy.x = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH, enemy.x));
-        enemy.y = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT, enemy.y));
+        enemy.x = Math.max(ENEMY_SIZE/2, Math.min(ACTUAL_WORLD_WIDTH - ENEMY_SIZE/2, enemy.x));
+        enemy.y = Math.max(ENEMY_SIZE/2, Math.min(ACTUAL_WORLD_HEIGHT - ENEMY_SIZE/2, enemy.y));
     });
 }
 
@@ -1827,23 +1832,24 @@ function handleCollisions() {
 
     // Player-Enemy collisions
     enemies.forEach((enemy, index) => {
-        if (checkCollision(
-            player.x, 
-            player.y, 
-            COLLISION_RADIUS, 
-            enemy.x, 
-            enemy.y, 
-            ENEMY_SIZE / 2
-        )) {
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const minDistance = COLLISION_RADIUS + (ENEMY_SIZE / 2);
+
+        if (distance < minDistance) {
             if (!player.isInvulnerable) {
-                // Calculate knockback direction
-                const dx = player.x - enemy.x;
-                const dy = player.y - enemy.y;
-                const magnitude = Math.sqrt(dx * dx + dy * dy);
+                // Calculate normalized knockback direction
+                const knockbackDirX = dx / distance;
+                const knockbackDirY = dy / distance;
                 
                 // Apply knockback to player
-                player.knockbackX = (dx / magnitude) * KNOCKBACK_FORCE;
-                player.knockbackY = (dy / magnitude) * KNOCKBACK_FORCE;
+                player.knockbackX = knockbackDirX * KNOCKBACK_FORCE;
+                player.knockbackY = knockbackDirY * KNOCKBACK_FORCE;
+                
+                // Apply opposite knockback to enemy
+                enemy.knockbackX = -knockbackDirX * (KNOCKBACK_FORCE / 2);
+                enemy.knockbackY = -knockbackDirY * (KNOCKBACK_FORCE / 2);
                 
                 // Damage player
                 player.health -= enemy.damage;
@@ -1863,7 +1869,9 @@ function handleCollisions() {
                 socket.emit('playerDamaged', {
                     playerId: player.id,
                     health: player.health,
-                    maxHealth: player.maxHealth
+                    maxHealth: player.maxHealth,
+                    knockbackX: player.knockbackX,
+                    knockbackY: player.knockbackY
                 });
             }
         }
