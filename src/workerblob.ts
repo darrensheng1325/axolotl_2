@@ -1,14 +1,14 @@
 export const workerBlob = new Blob([`
 // Worker code starts here
-const WORLD_WIDTH = 10000;
-const WORLD_HEIGHT = 2000;
+const WORLD_WIDTH = 20000;
+const WORLD_HEIGHT = 20000;
 const SCALE_FACTOR = 1;
-const ACTUAL_WORLD_WIDTH = 10000;
-const ACTUAL_WORLD_HEIGHT = 2000;
+const ACTUAL_WORLD_WIDTH = 20000;
+const ACTUAL_WORLD_HEIGHT = 20000;
 const FISH_DETECTION_RADIUS = 500;
 const PLAYER_BASE_SPEED = 5;
 const FISH_RETURN_SPEED = 0.5;
-const ENEMY_COUNT = 100;
+const ENEMY_COUNT = 3000;
 const OBSTACLE_COUNT = 20;
 const ENEMY_CORAL_PROBABILITY = 0.3;
 const ENEMY_CORAL_HEALTH = 50;
@@ -29,9 +29,9 @@ const PLAYER_DIAGONAL_SPEED = PLAYER_SPEED / Math.sqrt(2);
 
 // Add physics constants
 const ACCELERATION = 0.5;
-const MAX_SPEED = 6;
-const FRICTION = 0.95;
-const DELTA_TIME = 1000 / 60; // 60 FPS
+const MAX_SPEED = 12;
+const FRICTION = 0.1;
+const DELTA_TIME = 1000 / 240; // 240 FPS
 
 // Mock Socket class implementation
 class MockSocket {
@@ -1680,6 +1680,7 @@ function sendGameState() {
 
 // Update the player movement handler
 socketHandlers.set('playerMovement', (movementData) => {
+    console.log('playerMovement', movementData);
     const currentPlayer = players[socket.id];
     if (currentPlayer) {
         // Apply acceleration based on input
@@ -1714,8 +1715,6 @@ socketHandlers.set('playerMovement', (movementData) => {
         }
 
         // Ensure player stays within world bounds
-        newX = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH - PLAYER_SIZE, newX));
-        newY = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT - PLAYER_SIZE, newY));
 
         // Check for wall collisions
         let collision = false;
@@ -1800,8 +1799,8 @@ function updatePhysics(deltaTime) {
     
     Object.values(players).forEach(player => {
         // Apply friction
-        player.velocityX *= Math.pow(FRICTION, timeStep);
-        player.velocityY *= Math.pow(FRICTION, timeStep);
+        // player.velocityX *= Math.pow(FRICTION, timeStep);
+        // player.velocityY *= Math.pow(FRICTION, timeStep);
 
         // Apply knockback decay
         if (player.knockbackX) {
@@ -1835,7 +1834,7 @@ function handleCollisions() {
         const minDistance = COLLISION_RADIUS + (ENEMY_SIZE / 2);
 
         if (distance < minDistance) {
-            if (!player.isInvulnerable) {
+            if (true) {
                 // Calculate normalized knockback direction
                 const knockbackDirX = dx / distance;
                 const knockbackDirY = dy / distance;
