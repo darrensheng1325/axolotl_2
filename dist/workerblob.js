@@ -38,7 +38,7 @@ const DELTA_TIME = 1000 / 240; // 240 FPS
 
 // Add enemy movement constants
 const ENEMY_DIRECTION_CHANGE_INTERVAL = 2000; // ms between direction changes
-const ENEMY_MOVEMENT_SPEED = 1; // Reduced from 2
+const ENEMY_MOVEMENT_SPEED = 0.5; // Reduced from 2
 
 // Mock Socket class implementation
 class MockSocket {
