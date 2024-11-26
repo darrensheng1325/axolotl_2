@@ -1,44 +1,56 @@
 export class SVGLoader {
-    private cache: Map<string, SVGElement>;
-
-    constructor() {
-        this.cache = new Map();
-    }
+    private svgCache: Map<string, SVGElement> = new Map();
 
     async loadSVG(path: string): Promise<SVGElement> {
-        // Check cache first
-        if (this.cache.has(path)) {
-            return this.cache.get(path)!.cloneNode(true) as SVGElement;
-        }
-
         try {
-            const response = await fetch(path);
-            const svgText = await response.text();
-            
-            // Create a temporary container to parse SVG
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(svgText, 'image/svg+xml');
-            
-            // Check if we got a valid SVG
-            const svgElement = doc.querySelector('svg');
-            if (!svgElement) {
-                throw new Error('Invalid SVG file');
+            // Check cache first
+            if (this.svgCache.has(path)) {
+                return this.svgCache.get(path)!.cloneNode(true) as SVGElement;
             }
 
-            // Store in cache
-            this.cache.set(path, svgElement.cloneNode(true) as SVGElement);
+            // Create a default SVG if loading fails
+            const defaultSVG = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            defaultSVG.setAttribute("width", "100");
+            defaultSVG.setAttribute("height", "100");
             
-            return svgElement;
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute("width", "100");
+            rect.setAttribute("height", "100");
+            rect.setAttribute("fill", "#666");
+            defaultSVG.appendChild(rect);
+
+            try {
+                const response = await fetch(path);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const text = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, "image/svg+xml");
+                const svg = doc.querySelector('svg');
+                
+                if (svg instanceof SVGElement) {
+                    this.svgCache.set(path, svg);
+                    return svg.cloneNode(true) as SVGElement;
+                }
+                throw new Error('Invalid SVG file');
+            } catch (error) {
+                console.warn(`Failed to load SVG from ${path}, using default:`, error);
+                this.svgCache.set(path, defaultSVG);
+                return defaultSVG.cloneNode(true) as SVGElement;
+            }
         } catch (error) {
-            console.error(`Failed to load SVG from ${path}:`, error);
-            throw error;
+            console.error('Error in loadSVG:', error);
+            return document.createElementNS("http://www.w3.org/2000/svg", "svg");
         }
     }
 
-    // Helper method to render SVG into a container
-    async renderSVG(path: string, container: HTMLElement): Promise<void> {
-        const svg = await this.loadSVG(path);
-        container.innerHTML = '';
-        container.appendChild(svg);
+    renderSVG(svgPath: string, container: HTMLElement) {
+        this.loadSVG(svgPath)
+            .then(svg => {
+                container.innerHTML = '';
+                container.appendChild(svg);
+            })
+            .catch(error => {
+                console.error('Error rendering SVG:', error);
+            });
     }
 } 

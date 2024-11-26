@@ -2542,13 +2542,27 @@ class Game {
     }
     async loadAssets() {
         try {
-            // Load SVG assets
-            await this.svgLoader.loadSVG('/src/land.svg');
-            await this.svgLoader.loadSVG('/src/axolotl.svg');
-            await this.initializeWalls(); // Add this line
+            // Create a simple wall SVG programmatically
+            const wallSVG = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            wallSVG.setAttribute("width", "100");
+            wallSVG.setAttribute("height", "100");
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute("width", "100");
+            rect.setAttribute("height", "100");
+            rect.setAttribute("fill", "#666");
+            wallSVG.appendChild(rect);
+            // Store the wall SVG
+            this.walls = Array(100).fill(null).map(() => ({
+                x: Math.random() * this.WORLD_WIDTH,
+                y: Math.random() * this.WORLD_HEIGHT,
+                element: wallSVG.cloneNode(true)
+            }));
+            console.log('Successfully initialized walls');
         }
         catch (error) {
             console.error('Failed to load game assets:', error);
+            // Create empty walls array if loading fails
+            this.walls = [];
         }
     }
     // Example method to render an SVG
@@ -2619,42 +2633,27 @@ class Game {
     }
     // Update the drawWalls method to be more efficient
     drawWalls() {
-        // Create a single temporary canvas for all walls
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = 100;
-        tempCanvas.height = 100;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx)
+        if (!this.ctx)
             return;
         this.walls.forEach(wall => {
+            if (!wall || !wall.element)
+                return;
             // Only draw walls that are within the viewport
             if (wall.x + 100 >= this.cameraX &&
                 wall.x <= this.cameraX + this.canvas.width &&
                 wall.y + 100 >= this.cameraY &&
                 wall.y <= this.cameraY + this.canvas.height) {
-                // Draw the wall
-                this.ctx.save();
-                this.ctx.translate(wall.x, wall.y);
-                // Convert SVG to image if not already converted
-                if (!wall.element.hasAttribute('rendered')) {
-                    const svgData = new XMLSerializer().serializeToString(wall.element);
-                    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-                    const url = URL.createObjectURL(svgBlob);
-                    const img = new Image();
-                    img.onload = () => {
-                        tempCtx.clearRect(0, 0, 100, 100);
-                        tempCtx.drawImage(img, 0, 0, 100, 100);
-                        this.ctx.drawImage(tempCanvas, 0, 0);
-                        URL.revokeObjectURL(url);
-                        wall.element.setAttribute('rendered', 'true');
-                    };
-                    img.src = url;
+                try {
+                    this.ctx.save();
+                    this.ctx.translate(wall.x - this.cameraX, wall.y - this.cameraY);
+                    // Draw a simple rectangle if SVG fails
+                    this.ctx.fillStyle = '#666';
+                    this.ctx.fillRect(0, 0, 100, 100);
+                    this.ctx.restore();
                 }
-                else {
-                    // Use cached rendering
-                    this.ctx.drawImage(tempCanvas, 0, 0);
+                catch (error) {
+                    console.warn('Error drawing wall:', error);
                 }
-                this.ctx.restore();
             }
         });
     }
