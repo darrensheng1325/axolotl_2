@@ -1687,10 +1687,20 @@ function initializeGame(messageData) {
 function updateGame() {
     // Update player states
     Object.values(players).forEach(player => {
-        // Remove automatic healing
-        // if (player.health < player.maxHealth) {
-        //     player.health += 0.1;
-        // }
+        // Add gradual health recovery with a reasonable rate
+        if (player.health < player.maxHealth) {
+            // Recover 5 health per second (assuming 240 FPS)
+            player.health = Math.min(player.maxHealth, player.health + (5/500));
+            
+            // Emit health update to keep client in sync
+            socket.emit('playerDamaged', {
+                playerId: player.id,
+                health: player.health,
+                maxHealth: player.maxHealth,
+                knockbackX: 0,
+                knockbackY: 0
+            });
+        }
     });
 
     // Add collision detection
