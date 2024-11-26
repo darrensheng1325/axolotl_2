@@ -1546,7 +1546,7 @@ function createEnemy() {
         x: Math.random() * ACTUAL_WORLD_WIDTH,
         y: Math.random() * ACTUAL_WORLD_HEIGHT,
         angle: Math.random() * Math.PI * 2,
-        health: 100,
+        health: 30,
         speed: 2,
         damage: 10,
         knockbackX: 0,
@@ -1852,6 +1852,9 @@ function handleCollisions() {
                 
                 // Damage player
                 player.health -= enemy.damage;
+
+                // Damage enemy
+                enemy.health -= player.damage;
                 
                 // Check if player died
                 if (player.health <= 0) {
