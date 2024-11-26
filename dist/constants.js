@@ -205,8 +205,8 @@ exports.WORLD_MAP = [
         "height": 1320,
         "properties": {
             "teleportTo": {
-                "x": 0,
-                "y": 0
+                "x": 17000,
+                "y": 17000
             }
         }
     },

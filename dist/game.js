@@ -1170,6 +1170,7 @@ class Game {
         // For example, you might want to adjust the camera bounds
         // console.log('Canvas resized to:', this.canvas.width, 'x', this.canvas.height);
     }
+    // Change from private to public
     cleanup() {
         // Save progress before cleanup if in single player mode
         if (this.isSinglePlayer && this.socket?.id) {
@@ -1178,9 +1179,10 @@ class Game {
                 this.savePlayerProgress(player);
             }
         }
-        // Stop the game loop
+        // Stop the game loop immediately to prevent further drawing
         if (this.gameLoopId) {
             cancelAnimationFrame(this.gameLoopId);
+            this.gameLoopId = null;
         }
         // Terminate the web worker if it exists
         if (this.worker) {
@@ -1197,40 +1199,70 @@ class Game {
         this.dots = [];
         this.obstacles = [];
         this.items = [];
-        // Clear the canvas
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        // Reset and show title screen elements
-        if (this.titleScreen) {
-            this.titleScreen.style.display = 'flex';
-            this.titleScreen.style.opacity = '1';
-            this.titleScreen.style.zIndex = '1000';
+        this.world_map_data = [];
+        this.floatingTexts = [];
+        this.decorations = [];
+        this.sands = [];
+        this.walls = [];
+        // Clear the entire canvas including minimap area
+        const clearCanvas = () => {
+            // Clear the main canvas
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            // Fill with white background
+            this.ctx.fillStyle = 'white';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            // Explicitly clear the minimap area
+            const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
+            const minimapY = this.MINIMAP_PADDING;
+            this.ctx.clearRect(minimapX - 5, // Add padding to ensure complete clearing
+            minimapY - 5, this.MINIMAP_WIDTH + 10, this.MINIMAP_HEIGHT + 10);
+            this.ctx.fillStyle = 'white';
+            this.ctx.fillRect(minimapX - 5, minimapY - 5, this.MINIMAP_WIDTH + 10, this.MINIMAP_HEIGHT + 10);
+        };
+        // Clear multiple times to ensure everything is gone
+        clearCanvas();
+        requestAnimationFrame(clearCanvas);
+        setTimeout(clearCanvas, 50);
+        // Reset game state
+        this.isInventoryOpen = false;
+        this.isCraftingOpen = false;
+        this.speedBoostActive = false;
+        this.shieldActive = false;
+        this.isPlayerDead = false;
+        this.useMouseControls = false;
+        // Hide all game UI elements
+        if (this.inventoryPanel)
+            this.inventoryPanel.style.display = 'none';
+        if (this.craftingPanel)
+            this.craftingPanel.style.display = 'none';
+        if (this.chatContainer)
+            this.chatContainer.style.display = 'none';
+        if (this.saveIndicator)
+            this.saveIndicator.style.display = 'none';
+        // Clear loadout bar
+        const loadoutBar = document.getElementById('loadoutBar');
+        if (loadoutBar) {
+            loadoutBar.style.display = 'none';
+            // Clear all loadout slots
+            const slots = loadoutBar.querySelectorAll('.loadout-slot');
+            slots.forEach(slot => {
+                slot.innerHTML = '';
+            });
         }
-        if (this.nameInput) {
-            this.nameInput.style.display = 'block';
-            this.nameInput.style.opacity = '1';
-        }
-        // Hide exit button
-        this.hideExitButton();
-        // Show and reset game menu
-        const gameMenu = document.getElementById('gameMenu');
-        if (gameMenu) {
-            gameMenu.style.display = 'flex';
-            gameMenu.style.opacity = '1';
-            gameMenu.style.zIndex = '3000';
-        }
-        // Reset canvas state
-        this.canvas.style.zIndex = '0';
-        // Clean up save indicator
+        // Reset camera position
+        this.cameraX = 0;
+        this.cameraY = 0;
+        // Clear any remaining timeouts or intervals
         if (this.saveIndicatorTimeout) {
             clearTimeout(this.saveIndicatorTimeout);
+            this.saveIndicatorTimeout = null;
         }
-        this.saveIndicator?.remove();
-        this.saveIndicator = null;
-        // Remove chat container
-        this.chatContainer?.remove();
-        this.chatContainer = null;
-        this.chatInput = null;
-        this.chatMessages = null;
+        // Remove any event listeners
+        this.keysPressed.clear();
+        // Set canvas background to white
+        this.canvas.style.backgroundColor = 'white';
+        // Stop drawing the game loop
+        this.gameLoopId = null;
     }
     loadPlayerProgress() {
         const savedProgress = localStorage.getItem('playerProgress');
@@ -1363,15 +1395,17 @@ class Game {
     handleExit() {
         // Clean up game state
         this.cleanup();
-        // Show title screen elements
+        // Show title screen elements with proper styling
         if (this.titleScreen) {
             this.titleScreen.style.display = 'flex';
             this.titleScreen.style.opacity = '1';
             this.titleScreen.style.zIndex = '1000';
+            this.titleScreen.style.pointerEvents = 'auto';
         }
         if (this.nameInput) {
             this.nameInput.style.display = 'block';
             this.nameInput.style.opacity = '1';
+            this.nameInput.value = ''; // Clear the input
         }
         // Hide exit button
         this.hideExitButton();
@@ -1381,11 +1415,27 @@ class Game {
             gameMenu.style.display = 'flex';
             gameMenu.style.opacity = '1';
             gameMenu.style.zIndex = '3000';
+            gameMenu.style.pointerEvents = 'auto';
         }
-        // Clear the canvas
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        // Reset canvas visibility
+        // Reset canvas state
         this.canvas.style.zIndex = '0';
+        this.canvas.style.pointerEvents = 'none';
+        this.canvas.style.backgroundColor = 'white';
+        // Clear any remaining timeouts or intervals
+        if (this.saveIndicatorTimeout) {
+            clearTimeout(this.saveIndicatorTimeout);
+            this.saveIndicatorTimeout = null;
+        }
+        // Remove any event listeners
+        this.keysPressed.clear();
+        // Force multiple clear attempts to ensure everything is gone
+        for (let i = 0; i < 3; i++) {
+            requestAnimationFrame(() => {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.fillStyle = 'white';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            });
+        }
     }
     applyHueRotation(ctx, imageData) {
         const data = imageData.data;

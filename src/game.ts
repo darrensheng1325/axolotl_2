@@ -1459,79 +1459,121 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
      // console.log('Canvas resized to:', this.canvas.width, 'x', this.canvas.height);
   }
 
+  // Change from private to public
   public cleanup() {
-      // Save progress before cleanup if in single player mode
-      if (this.isSinglePlayer && this.socket?.id) {
-          const player = this.players.get(this.socket.id);
-          if (player) {
-              this.savePlayerProgress(player);
-          }
-      }
+    // Save progress before cleanup if in single player mode
+    if (this.isSinglePlayer && this.socket?.id) {
+        const player = this.players.get(this.socket.id);
+        if (player) {
+            this.savePlayerProgress(player);
+        }
+    }
 
-      // Stop the game loop
-      if (this.gameLoopId) {
-          cancelAnimationFrame(this.gameLoopId);
-      }
+    // Stop the game loop immediately to prevent further drawing
+    if (this.gameLoopId) {
+        cancelAnimationFrame(this.gameLoopId);
+        this.gameLoopId = null;
+    }
 
-      // Terminate the web worker if it exists
-      if (this.worker) {
-          this.worker.terminate();
-          this.worker = null;
-      }
+    // Terminate the web worker if it exists
+    if (this.worker) {
+        this.worker.terminate();
+        this.worker = null;
+    }
 
-      // Disconnect socket if it exists
-      if (this.socket) {
-          this.socket.disconnect();
-      }
+    // Disconnect socket if it exists
+    if (this.socket) {
+        this.socket.disconnect();
+    }
 
-      // Clear all game data
-      this.players.clear();
-      this.enemies.clear();
-      this.dots = [];
-      this.obstacles = [];
-      this.items = [];
+    // Clear all game data
+    this.players.clear();
+    this.enemies.clear();
+    this.dots = [];
+    this.obstacles = [];
+    this.items = [];
+    this.world_map_data = [];
+    this.floatingTexts = [];
+    this.decorations = [];
+    this.sands = [];
+    this.walls = [];
 
-      // Clear the canvas
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Clear the entire canvas including minimap area
+    const clearCanvas = () => {
+        // Clear the main canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Fill with white background
+        this.ctx.fillStyle = 'white';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Explicitly clear the minimap area
+        const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
+        const minimapY = this.MINIMAP_PADDING;
+        this.ctx.clearRect(
+            minimapX - 5, // Add padding to ensure complete clearing
+            minimapY - 5,
+            this.MINIMAP_WIDTH + 10,
+            this.MINIMAP_HEIGHT + 10
+        );
+        this.ctx.fillStyle = 'white';
+        this.ctx.fillRect(
+            minimapX - 5,
+            minimapY - 5,
+            this.MINIMAP_WIDTH + 10,
+            this.MINIMAP_HEIGHT + 10
+        );
+    };
 
-      // Reset and show title screen elements
-      if (this.titleScreen) {
-          this.titleScreen.style.display = 'flex';
-          this.titleScreen.style.opacity = '1';
-          this.titleScreen.style.zIndex = '1000';
-      }
-      if (this.nameInput) {
-          this.nameInput.style.display = 'block';
-          this.nameInput.style.opacity = '1';
-      }
+    // Clear multiple times to ensure everything is gone
+    clearCanvas();
+    requestAnimationFrame(clearCanvas);
+    setTimeout(clearCanvas, 50);
 
-      // Hide exit button
-      this.hideExitButton();
+    // Reset game state
+    this.isInventoryOpen = false;
+    this.isCraftingOpen = false;
+    this.speedBoostActive = false;
+    this.shieldActive = false;
+    this.isPlayerDead = false;
+    this.useMouseControls = false;
 
-      // Show and reset game menu
-      const gameMenu = document.getElementById('gameMenu');
-      if (gameMenu) {
-          gameMenu.style.display = 'flex';
-          gameMenu.style.opacity = '1';
-          gameMenu.style.zIndex = '3000';
-      }
+    // Hide all game UI elements
+    if (this.inventoryPanel) this.inventoryPanel.style.display = 'none';
+    if (this.craftingPanel) this.craftingPanel.style.display = 'none';
+    if (this.chatContainer) this.chatContainer.style.display = 'none';
+    if (this.saveIndicator) this.saveIndicator.style.display = 'none';
 
-      // Reset canvas state
-      this.canvas.style.zIndex = '0';
+    // Clear loadout bar
+    const loadoutBar = document.getElementById('loadoutBar');
+    if (loadoutBar) {
+        loadoutBar.style.display = 'none';
+        // Clear all loadout slots
+        const slots = loadoutBar.querySelectorAll('.loadout-slot');
+        slots.forEach(slot => {
+            slot.innerHTML = '';
+        });
+    }
 
-      // Clean up save indicator
-      if (this.saveIndicatorTimeout) {
-          clearTimeout(this.saveIndicatorTimeout);
-      }
-      this.saveIndicator?.remove();
-      this.saveIndicator = null;
+    // Reset camera position
+    this.cameraX = 0;
+    this.cameraY = 0;
 
-      // Remove chat container
-      this.chatContainer?.remove();
-      this.chatContainer = null;
-      this.chatInput = null;
-      this.chatMessages = null;
-  }
+    // Clear any remaining timeouts or intervals
+    if (this.saveIndicatorTimeout) {
+        clearTimeout(this.saveIndicatorTimeout);
+        this.saveIndicatorTimeout = null;
+    }
+
+    // Remove any event listeners
+    this.keysPressed.clear();
+
+    // Set canvas background to white
+    this.canvas.style.backgroundColor = 'white';
+
+    // Stop drawing the game loop
+    this.gameLoopId = null;
+}
 
   private loadPlayerProgress(): { level: number; xp: number; maxHealth: number; damage: number } {
       const savedProgress = localStorage.getItem('playerProgress');
@@ -1690,37 +1732,58 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
   }
 
   private handleExit() {
-      // Clean up game state
-      this.cleanup();
-      
-      // Show title screen elements
-      if (this.titleScreen) {
-          this.titleScreen.style.display = 'flex';
-          this.titleScreen.style.opacity = '1';
-          this.titleScreen.style.zIndex = '1000';
-      }
-      if (this.nameInput) {
-          this.nameInput.style.display = 'block';
-          this.nameInput.style.opacity = '1';
-      }
+    // Clean up game state
+    this.cleanup();
+    
+    // Show title screen elements with proper styling
+    if (this.titleScreen) {
+        this.titleScreen.style.display = 'flex';
+        this.titleScreen.style.opacity = '1';
+        this.titleScreen.style.zIndex = '1000';
+        this.titleScreen.style.pointerEvents = 'auto';
+    }
 
-      // Hide exit button
-      this.hideExitButton();
+    if (this.nameInput) {
+        this.nameInput.style.display = 'block';
+        this.nameInput.style.opacity = '1';
+        this.nameInput.value = ''; // Clear the input
+    }
 
-      // Show game menu with proper styling
-      const gameMenu = document.getElementById('gameMenu');
-      if (gameMenu) {
-          gameMenu.style.display = 'flex';
-          gameMenu.style.opacity = '1';
-          gameMenu.style.zIndex = '3000';
-      }
+    // Hide exit button
+    this.hideExitButton();
 
-      // Clear the canvas
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Show game menu with proper styling
+    const gameMenu = document.getElementById('gameMenu');
+    if (gameMenu) {
+        gameMenu.style.display = 'flex';
+        gameMenu.style.opacity = '1';
+        gameMenu.style.zIndex = '3000';
+        gameMenu.style.pointerEvents = 'auto';
+    }
 
-      // Reset canvas visibility
-      this.canvas.style.zIndex = '0';
-  }
+    // Reset canvas state
+    this.canvas.style.zIndex = '0';
+    this.canvas.style.pointerEvents = 'none';
+    this.canvas.style.backgroundColor = 'white';
+
+    // Clear any remaining timeouts or intervals
+    if (this.saveIndicatorTimeout) {
+        clearTimeout(this.saveIndicatorTimeout);
+        this.saveIndicatorTimeout = null;
+    }
+
+    // Remove any event listeners
+    this.keysPressed.clear();
+    
+    // Force multiple clear attempts to ensure everything is gone
+    for (let i = 0; i < 3; i++) {
+        requestAnimationFrame(() => {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.fillStyle = 'white';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        });
+    }
+}
 
   private applyHueRotation(ctx: CanvasRenderingContext2D, imageData: ImageData): void {
       const data = imageData.data;
