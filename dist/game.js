@@ -2703,28 +2703,39 @@ class Game {
         });
     }
     drawTeleporter(x, y, width, height) {
-        // Add portal effect
-        const gradient = this.ctx.createRadialGradient(x + width / 2, y + height / 2, 0, x + width / 2, y + height / 2, width / 2);
-        gradient.addColorStop(0, 'rgba(33, 150, 243, 0.8)');
-        gradient.addColorStop(1, 'rgba(33, 150, 243, 0)');
+        // Create a pulsing effect
+        const time = Date.now() / 1000;
+        const pulseSize = 0.2 * Math.sin(time * 2) + 0.8; // Pulse between 0.6 and 1.0
+        // Draw outer glow
+        const gradient = this.ctx.createRadialGradient(x + width / 2, y + height / 2, 0, x + width / 2, y + height / 2, (width / 2) * pulseSize);
+        gradient.addColorStop(0, 'rgba(0, 183, 255, 0.6)');
+        gradient.addColorStop(0.6, 'rgba(0, 106, 255, 0.3)');
+        gradient.addColorStop(1, 'rgba(0, 47, 255, 0)');
         this.ctx.fillStyle = gradient;
         this.ctx.fillRect(x, y, width, height);
-        // Add swirl effect
-        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        this.ctx.lineWidth = 2;
-        this.ctx.beginPath();
-        const time = Date.now() / 1000;
-        for (let i = 0; i < Math.PI * 2; i += 0.1) {
-            const radius = (Math.sin(time + i) + 1) * width / 4;
-            const px = x + width / 2 + Math.cos(i) * radius;
-            const py = y + height / 2 + Math.sin(i) * radius;
-            if (i === 0)
-                this.ctx.moveTo(px, py);
-            else
-                this.ctx.lineTo(px, py);
+        // Draw portal rings
+        const numRings = 3;
+        this.ctx.lineWidth = 4;
+        for (let i = 0; i < numRings; i++) {
+            const ringSize = ((i + 1) / numRings) * width / 2 * pulseSize;
+            const opacity = 1 - (i / numRings);
+            this.ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
+            this.ctx.beginPath();
+            this.ctx.ellipse(x + width / 2, y + height / 2, ringSize, ringSize * 0.4, 0, 0, Math.PI * 2);
+            this.ctx.stroke();
         }
-        this.ctx.closePath();
-        this.ctx.stroke();
+        // Add some particle effects
+        const numParticles = 8;
+        const particleTime = time * 3;
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        for (let i = 0; i < numParticles; i++) {
+            const angle = (i / numParticles) * Math.PI * 2 + particleTime;
+            const particleX = x + width / 2 + Math.cos(angle) * width / 3 * pulseSize;
+            const particleY = y + height / 2 + Math.sin(angle) * height / 4 * pulseSize;
+            this.ctx.beginPath();
+            this.ctx.arc(particleX, particleY, 3, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
     }
     drawSpawnPoint(x, y, width, height, type) {
         // Draw spawn area indicator
