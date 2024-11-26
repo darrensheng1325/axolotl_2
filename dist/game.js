@@ -1082,30 +1082,80 @@ class Game {
         }
     }
     checkCollisions(player, newX, newY) {
-        // World bounds
-        let finalX = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_WIDTH - constants_1.PLAYER_SIZE, newX));
-        let finalY = Math.max(0, Math.min(constants_1.ACTUAL_WORLD_HEIGHT - constants_1.PLAYER_SIZE, newY));
-        // Wall collisions
+        // World bounds with padding
+        const PADDING = constants_1.PLAYER_SIZE / 2;
+        let finalX = Math.max(PADDING, Math.min(constants_1.ACTUAL_WORLD_WIDTH - PADDING, newX));
+        let finalY = Math.max(PADDING, Math.min(constants_1.ACTUAL_WORLD_HEIGHT - PADDING, newY));
+        // Store original position for restoration if needed
+        const originalX = player.x;
+        const originalY = player.y;
+        let isColliding = false;
+        // Check wall collisions with improved corner handling
         for (const element of this.world_map_data) {
             if ((0, constants_1.isWall)(element)) {
-                if (finalX < element.x + element.width &&
-                    finalX + constants_1.PLAYER_SIZE > element.x &&
-                    finalY < element.y + element.height &&
-                    finalY + constants_1.PLAYER_SIZE > element.y) {
-                    // Resolve collision
-                    const fromCenterX = player.x - (element.x + element.width / 2);
-                    const fromCenterY = player.y - (element.y + element.height / 2);
-                    const angle = Math.atan2(fromCenterY, fromCenterX);
-                    finalX = element.x + element.width / 2 + Math.cos(angle) * (element.width / 2 + constants_1.PLAYER_SIZE);
-                    finalY = element.y + element.height / 2 + Math.sin(angle) * (element.height / 2 + constants_1.PLAYER_SIZE);
-                    // Zero out velocity in collision direction
-                    if (Math.abs(fromCenterX) > Math.abs(fromCenterY)) {
-                        player.velocityX = 0;
-                    }
-                    else {
-                        player.velocityY = 0;
+                const wallX = element.x;
+                const wallY = element.y;
+                const wallWidth = element.width;
+                const wallHeight = element.height;
+                // Add padding to wall collision box
+                const WALL_PADDING = 5;
+                if (finalX - PADDING < wallX + wallWidth + WALL_PADDING &&
+                    finalX + PADDING > wallX - WALL_PADDING &&
+                    finalY - PADDING < wallY + wallHeight + WALL_PADDING &&
+                    finalY + PADDING > wallY - WALL_PADDING) {
+                    isColliding = true;
+                    // Calculate the closest point on the wall to the player
+                    const closestX = Math.max(wallX, Math.min(wallX + wallWidth, finalX));
+                    const closestY = Math.max(wallY, Math.min(wallY + wallHeight, finalY));
+                    // Calculate vector from closest point to player
+                    const dx = finalX - closestX;
+                    const dy = finalY - closestY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < PADDING) {
+                        // Normalize the vector and push player out
+                        if (distance > 0) {
+                            finalX = closestX + (dx / distance) * (PADDING + 1);
+                            finalY = closestY + (dy / distance) * (PADDING + 1);
+                        }
+                        else {
+                            // If distance is 0 (player exactly on wall), push in the direction of movement
+                            const moveX = finalX - originalX;
+                            const moveY = finalY - originalY;
+                            const moveDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                            if (moveDist > 0) {
+                                finalX = closestX - (moveX / moveDist) * (PADDING + 1);
+                                finalY = closestY - (moveY / moveDist) * (PADDING + 1);
+                            }
+                        }
+                        // Zero out velocity in collision direction
+                        const vx = Math.abs(dx) > Math.abs(dy);
+                        if (vx)
+                            player.velocityX = 0;
+                        else
+                            player.velocityY = 0;
                     }
                 }
+            }
+        }
+        // If stuck between multiple walls, restore original position
+        if (isColliding) {
+            let stillStuck = false;
+            for (const element of this.world_map_data) {
+                if ((0, constants_1.isWall)(element)) {
+                    if (finalX - PADDING < element.x + element.width &&
+                        finalX + PADDING > element.x &&
+                        finalY - PADDING < element.y + element.height &&
+                        finalY + PADDING > element.y) {
+                        stillStuck = true;
+                        break;
+                    }
+                }
+            }
+            if (stillStuck) {
+                finalX = originalX;
+                finalY = originalY;
+                player.velocityX = 0;
+                player.velocityY = 0;
             }
         }
         return [finalX, finalY];
