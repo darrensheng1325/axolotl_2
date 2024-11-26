@@ -1720,31 +1720,18 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
     this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
 
-    // Draw map elements with solid, inverted colors
+    // Draw only walls on minimap
     this.world_map_data.forEach(element => {
-        const scaledX = minimapX + (element.x * minimapScale.x);
-        const scaledY = minimapY + (element.y * minimapScale.y);
-        const scaledWidth = element.width * minimapScale.x;
-        const scaledHeight = element.height * minimapScale.y;
+        // Only draw walls
+        if (element.type === 'wall') {
+            const scaledX = minimapX + (element.x * minimapScale.x);
+            const scaledY = minimapY + (element.y * minimapScale.y);
+            const scaledWidth = element.width * minimapScale.x;
+            const scaledHeight = element.height * minimapScale.y;
 
-        switch (element.type) {
-            case 'wall':
-                this.ctx.fillStyle = '#000000'; // Black for walls
-                break;
-            case 'spawn':
-                this.ctx.fillStyle = '#00AA00'; // Dark green for spawn
-                break;
-            case 'teleporter':
-                this.ctx.fillStyle = '#0066FF'; // Blue for teleporters
-                break;
-            case 'safe_zone':
-                this.ctx.fillStyle = '#FFD700'; // Gold for safe zones
-                break;
-            default:
-                this.ctx.fillStyle = '#444444'; // Dark gray for unknown
+            this.ctx.fillStyle = '#000000'; // Black for walls
+            this.ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
         }
-
-        this.ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
     });
 
     // Draw all players on minimap with solid colors
