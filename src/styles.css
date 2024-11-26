@@ -1,5 +1,8 @@
 body {
-    background-color: #00FFFF;
+    background-image: url('/assets/background.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: repeat;
 }
 
 .auth-container {

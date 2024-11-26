@@ -188,6 +188,9 @@ export class Game {
   private lastUpdateTime: number = 0;         // Add this property for delta time
   private lastServerUpdate: number = 0;       // Add this property for server update time
 
+  // Add to class properties at the top
+  private backgroundImage: HTMLImageElement = new Image();
+
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
       this.canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
@@ -408,6 +411,12 @@ export class Game {
       this.socket.on('mapData', (mapData: MapElement[]) => {
           this.renderMap(mapData);
       });
+
+      // Load background image
+      this.backgroundImage.src = './assets/background.png';
+      this.backgroundImage.onload = () => {
+          console.log('Background image loaded successfully');
+      };
   }
 
   private async initializeSprites(): Promise<void> {
@@ -1212,8 +1221,22 @@ export class Game {
 
     // Clear the canvas
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.ctx.fillStyle = '#00FFFF';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Draw tiled background
+    const pattern = this.ctx.createPattern(this.backgroundImage, 'repeat');
+    if (pattern) {
+        this.ctx.save();
+        // Apply camera transform to background
+        this.ctx.translate(-this.cameraX * 0.5, -this.cameraY * 0.5); // Parallax effect
+        this.ctx.fillStyle = pattern;
+        this.ctx.fillRect(
+            this.cameraX * 0.5, 
+            this.cameraY * 0.5, 
+            this.canvas.width + this.cameraX * 0.5, 
+            this.canvas.height + this.cameraY * 0.5
+        );
+        this.ctx.restore();
+    }
 
     // Get current player and update
     const currentSocketId = this.socket?.id;
@@ -1498,7 +1521,7 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
     this.sands = [];
     this.walls = [];
 
-    // Clear the entire canvas including minimap area
+    // Define clear canvas function
     const clearCanvas = () => {
         // Clear the main canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -1511,7 +1534,7 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
         const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
         const minimapY = this.MINIMAP_PADDING;
         this.ctx.clearRect(
-            minimapX - 5, // Add padding to ensure complete clearing
+            minimapX - 5,
             minimapY - 5,
             this.MINIMAP_WIDTH + 10,
             this.MINIMAP_HEIGHT + 10
