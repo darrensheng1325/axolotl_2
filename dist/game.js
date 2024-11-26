@@ -464,21 +464,45 @@ class Game {
             //console.log('Received current players:', players);
             this.players.clear();
             Object.values(players).forEach(player => {
-                this.players.set(player.id, { ...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0, health: this.PLAYER_MAX_HEALTH });
+                // Don't override health with max health
+                this.players.set(player.id, {
+                    ...player,
+                    imageLoaded: true,
+                    score: 0,
+                    velocityX: 0,
+                    velocityY: 0
+                });
             });
         });
         this.socket.on('newPlayer', (player) => {
             //console.log('New player joined:', player);
-            this.players.set(player.id, { ...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0, health: this.PLAYER_MAX_HEALTH });
+            this.players.set(player.id, {
+                ...player,
+                imageLoaded: true,
+                score: 0,
+                velocityX: 0,
+                velocityY: 0
+            });
         });
         this.socket.on('playerMoved', (player) => {
             //console.log('Player moved:', player);
             const existingPlayer = this.players.get(player.id);
             if (existingPlayer) {
-                Object.assign(existingPlayer, player);
+                // Preserve existing health and other properties
+                Object.assign(existingPlayer, {
+                    ...player,
+                    health: existingPlayer.health,
+                    maxHealth: existingPlayer.maxHealth
+                });
             }
             else {
-                this.players.set(player.id, { ...player, imageLoaded: true, score: 0, velocityX: 0, velocityY: 0, health: this.PLAYER_MAX_HEALTH });
+                this.players.set(player.id, {
+                    ...player,
+                    imageLoaded: true,
+                    score: 0,
+                    velocityX: 0,
+                    velocityY: 0
+                });
             }
         });
         this.socket.on('playerDisconnected', (playerId) => {
@@ -501,9 +525,15 @@ class Game {
             this.enemies.set(enemy.id, enemy);
         });
         this.socket.on('playerDamaged', (data) => {
+            console.log('Player damaged event received:', data);
             const player = this.players.get(data.playerId);
             if (player) {
                 player.health = data.health;
+                player.maxHealth = data.maxHealth;
+                player.knockbackX = data.knockbackX;
+                player.knockbackY = data.knockbackY;
+                // Add visual feedback
+                this.showFloatingText(player.x, player.y - 20, `-${player.maxHealth - data.health}`, '#FF0000', 20);
             }
         });
         this.socket.on('enemyDamaged', (data) => {

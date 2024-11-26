@@ -1684,9 +1684,10 @@ function initializeGame(messageData) {
 function updateGame() {
     // Update player states
     Object.values(players).forEach(player => {
-        if (player.health < player.maxHealth) {
-            player.health += 0.1;
-        }
+        // Remove automatic healing
+        // if (player.health < player.maxHealth) {
+        //     player.health += 0.1;
+        // }
     });
 
     // Add collision detection
