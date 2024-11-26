@@ -1867,10 +1867,13 @@ function handleCollisions() {
         const minDistance = COLLISION_RADIUS + (ENEMY_SIZE / 2);
 
         if (distance < minDistance) {
-            console.log('Collision detected!');
-            console.log('Distance:', distance, 'MinDistance:', minDistance);
-            console.log('Player health before:', player.health);
-            
+            console.log('Collision detected!', {
+                distance,
+                minDistance,
+                playerHealth: player.health,
+                enemyDamage: enemy.damage
+            });
+
             // Calculate normalized knockback direction
             const knockbackDirX = dx / distance;
             const knockbackDirY = dy / distance;
@@ -1885,24 +1888,10 @@ function handleCollisions() {
             
             // Damage player
             player.health = Math.max(0, player.health - enemy.damage);
-            console.log('Enemy damage:', enemy.damage);
-            console.log('Player health after:', player.health);
-
-            // Damage enemy
-            enemy.health -= player.damage;
-            
-            // Check if enemy died
-            if (enemy.health <= 0) {
-                enemies.splice(index, 1);
-            }
-
-            // Check if player died
-            if (player.health <= 0) {
-                console.log('Player died!');
-                player.health = player.maxHealth;
-                player.x = 300; // Respawn position
-                player.y = 10000;
-            }
+            console.log('Player damaged:', {
+                newHealth: player.health,
+                damage: enemy.damage
+            });
 
             // Emit damage event
             socket.emit('playerDamaged', {
@@ -1912,8 +1901,53 @@ function handleCollisions() {
                 knockbackX: player.knockbackX,
                 knockbackY: player.knockbackY
             });
+
+            // Check if player died
+            if (player.health <= 0) {
+                console.log('Player died!');
+                socket.emit('playerDied', player.id);
+                player.health = player.maxHealth;
+                player.x = 300; // Respawn position
+                player.y = 10000;
+            }
+
+            // Damage enemy
+            enemy.health -= player.damage;
             
-            console.log('Damage event emitted');
+            // Check if enemy died
+            if (enemy.health <= 0) {
+                enemies.splice(index, 1);
+                
+                // Calculate XP based on enemy tier
+                const xpGained = ENEMY_XP[ENEMY_TIERS.indexOf(enemy.tier)];
+                player.xp += xpGained;
+                
+                // Check for level up
+                if (player.xp >= player.xpToNextLevel) {
+                    player.level++;
+                    player.xp -= player.xpToNextLevel;
+                    player.xpToNextLevel = calculateXPRequirement(player.level);
+                    player.maxHealth += PLAYER_DAMAGE;
+                    player.damage += 2;
+                    
+                    socket.emit('levelUp', {
+                        playerId: player.id,
+                        level: player.level,
+                        maxHealth: player.maxHealth,
+                        damage: player.damage
+                    });
+                }
+                
+                socket.emit('xpGained', {
+                    playerId: player.id,
+                    xp: xpGained,
+                    totalXp: player.xp,
+                    level: player.level,
+                    xpToNextLevel: player.xpToNextLevel,
+                    maxHealth: player.maxHealth,
+                    damage: player.damage
+                });
+            }
         }
     });
 
@@ -1927,13 +1961,9 @@ function handleCollisions() {
             item.y, 
             20 // Item radius
         )) {
-            // Check if inventory has space
             if (player.inventory.length < MAX_INVENTORY_SIZE) {
-                // Add item to inventory
                 player.inventory.push(item);
-                // Remove item from world
                 items.splice(index, 1);
-                // Emit item collected event
                 socket.emit('itemCollected', {
                     playerId: player.id,
                     item: item,
