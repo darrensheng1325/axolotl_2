@@ -1526,6 +1526,13 @@ const WORLD_MAP = [
   }
 ];
 
+const ENEMY_TIERS = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
+const ENEMY_SIZES = [10, 20, 30, 40, 50, 60];
+const ENEMY_HEALTHS = [10, 20, 30, 40, 50, 60];
+const ENEMY_SPEEDS = [1, 2, 3, 4, 5, 6];
+const ENEMY_DAMAGES = [1, 2, 3, 4, 5, 6];
+const ENEMY_XP = [10, 20, 30, 40, 50, 60];
+
 // Helper functions
 function isWall(element) {
     return element.type === 'wall';
@@ -1539,16 +1546,17 @@ function createEnemy() {
     return {
         id: Math.random().toString(36).substr(2, 9),
         type: Math.random() < 0.5 ? 'octopus' : 'fish',
-        tier: 'common',
+        tier: ENEMY_TIERS[Math.floor(Math.random() * ENEMY_TIERS.length)],
         x: Math.random() * ACTUAL_WORLD_WIDTH,
         y: Math.random() * ACTUAL_WORLD_HEIGHT,
         angle: Math.random() * Math.PI * 2,
-        health: 30,
-        speed: 2,
-        damage: 10,
-        knockbackX: 0,
-        knockbackY: 0,
-        size: ENEMY_SIZE
+        health: ENEMY_HEALTHS[Math.floor(Math.random() * ENEMY_HEALTHS.length)],
+        speed: ENEMY_SPEEDS[Math.floor(Math.random() * ENEMY_SPEEDS.length)],
+        damage: ENEMY_DAMAGES[Math.floor(Math.random() * ENEMY_DAMAGES.length)],
+        xp: ENEMY_XP[Math.floor(Math.random() * ENEMY_XP.length)],
+        knockbackX: 50,
+        knockbackY: 50,
+        size: ENEMY_SIZES[Math.floor(Math.random() * ENEMY_SIZES.length)]
     };
 }
 
@@ -1853,6 +1861,14 @@ function handleCollisions() {
                 // Damage enemy
                 enemy.health -= player.damage;
                 
+                // Check if enemy died
+                if (enemy.health <= 0) {
+                    enemies.splice(index, 1);
+                }
+                
+                // Grant XP to player
+                player.xp += enemy.xp;
+
                 // Check if player died
                 if (player.health <= 0) {
                     player.health = player.maxHealth;
