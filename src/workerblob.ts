@@ -33,6 +33,10 @@ const MAX_SPEED = 12;
 const FRICTION = 0.1;
 const DELTA_TIME = 1000 / 240; // 240 FPS
 
+// Add enemy movement constants
+const ENEMY_DIRECTION_CHANGE_INTERVAL = 2000; // ms between direction changes
+const ENEMY_MOVEMENT_SPEED = 1; // Reduced from 2
+
 // Mock Socket class implementation
 class MockSocket {
     constructor() {
@@ -1578,8 +1582,29 @@ function createDecoration() {
     };
 }
 
+// Add this to store enemy movement states
+const enemyStates = new Map();
+
 function moveEnemies() {
+    const currentTime = Date.now();
+    
     enemies.forEach(enemy => {
+        // Initialize or update enemy state
+        if (!enemyStates.has(enemy.id)) {
+            enemyStates.set(enemy.id, {
+                angle: Math.random() * Math.PI * 2,
+                lastDirectionChange: currentTime
+            });
+        }
+        
+        let state = enemyStates.get(enemy.id);
+        
+        // Change direction periodically
+        if (currentTime - state.lastDirectionChange > ENEMY_DIRECTION_CHANGE_INTERVAL) {
+            state.angle = Math.random() * Math.PI * 2;
+            state.lastDirectionChange = currentTime;
+        }
+
         // Handle knockback
         if (enemy.knockbackX || enemy.knockbackY) {
             enemy.x += enemy.knockbackX;
@@ -1592,10 +1617,10 @@ function moveEnemies() {
             if (Math.abs(enemy.knockbackY) < 0.1) enemy.knockbackY = 0;
         }
 
-        // Simple random movement
-        const angle = Math.random() * Math.PI * 2;
-        enemy.x += Math.cos(angle) * enemy.speed;
-        enemy.y += Math.sin(angle) * enemy.speed;
+        // Move enemy in current direction
+        enemy.x += Math.cos(state.angle) * ENEMY_MOVEMENT_SPEED;
+        enemy.y += Math.sin(state.angle) * ENEMY_MOVEMENT_SPEED;
+        enemy.angle = state.angle; // Update enemy's visual angle
 
         // Keep within bounds
         enemy.x = Math.max(ENEMY_SIZE/2, Math.min(ACTUAL_WORLD_WIDTH - ENEMY_SIZE/2, enemy.x));
@@ -1842,53 +1867,53 @@ function handleCollisions() {
         const minDistance = COLLISION_RADIUS + (ENEMY_SIZE / 2);
 
         if (distance < minDistance) {
-            if (true) {
-                // Calculate normalized knockback direction
-                const knockbackDirX = dx / distance;
-                const knockbackDirY = dy / distance;
-                
-                // Apply knockback to player
-                player.knockbackX = knockbackDirX * KNOCKBACK_FORCE;
-                player.knockbackY = knockbackDirY * KNOCKBACK_FORCE;
-                
-                // Apply opposite knockback to enemy
-                enemy.knockbackX = -knockbackDirX * (KNOCKBACK_FORCE / 2);
-                enemy.knockbackY = -knockbackDirY * (KNOCKBACK_FORCE / 2);
-                
-                // Damage player
-                player.health -= enemy.damage;
+            console.log('Collision detected!');
+            console.log('Distance:', distance, 'MinDistance:', minDistance);
+            console.log('Player health before:', player.health);
+            
+            // Calculate normalized knockback direction
+            const knockbackDirX = dx / distance;
+            const knockbackDirY = dy / distance;
+            
+            // Apply knockback to player
+            player.knockbackX = knockbackDirX * KNOCKBACK_FORCE;
+            player.knockbackY = knockbackDirY * KNOCKBACK_FORCE;
+            
+            // Apply opposite knockback to enemy
+            enemy.knockbackX = -knockbackDirX * (KNOCKBACK_FORCE / 2);
+            enemy.knockbackY = -knockbackDirY * (KNOCKBACK_FORCE / 2);
+            
+            // Damage player
+            player.health = Math.max(0, player.health - enemy.damage);
+            console.log('Enemy damage:', enemy.damage);
+            console.log('Player health after:', player.health);
 
-                // Damage enemy
-                enemy.health -= player.damage;
-                
-                // Check if enemy died
-                if (enemy.health <= 0) {
-                    enemies.splice(index, 1);
-                }
-                
-                // Grant XP to player
-                player.xp += enemy.xp;
-
-                // Check if player died
-                if (player.health <= 0) {
-                    player.health = player.maxHealth;
-                    player.x = 300; // Respawn position
-                    player.y = 10000;
-                    player.isInvulnerable = true;
-                    setTimeout(() => {
-                        player.isInvulnerable = false;
-                    }, RESPAWN_INVULNERABILITY_TIME);
-                }
-
-                // Emit damage event
-                socket.emit('playerDamaged', {
-                    playerId: player.id,
-                    health: player.health,
-                    maxHealth: player.maxHealth,
-                    knockbackX: player.knockbackX,
-                    knockbackY: player.knockbackY
-                });
+            // Damage enemy
+            enemy.health -= player.damage;
+            
+            // Check if enemy died
+            if (enemy.health <= 0) {
+                enemies.splice(index, 1);
             }
+
+            // Check if player died
+            if (player.health <= 0) {
+                console.log('Player died!');
+                player.health = player.maxHealth;
+                player.x = 300; // Respawn position
+                player.y = 10000;
+            }
+
+            // Emit damage event
+            socket.emit('playerDamaged', {
+                playerId: player.id,
+                health: player.health,
+                maxHealth: player.maxHealth,
+                knockbackX: player.knockbackX,
+                knockbackY: player.knockbackY
+            });
+            
+            console.log('Damage event emitted');
         }
     });
 
