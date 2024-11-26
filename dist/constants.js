@@ -1232,6 +1232,313 @@ exports.WORLD_MAP = [
         "width": 620,
         "height": 260,
         "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 1146.5625,
+        "y": 10460,
+        "width": 1260,
+        "height": 280,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 566.5625,
+        "y": 13460,
+        "width": 380,
+        "height": 220,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 796.5625,
+        "y": 13330,
+        "width": 420,
+        "height": 160,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 2256.5625,
+        "y": 13550,
+        "width": 700,
+        "height": 300,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 2696.5625,
+        "y": 13350,
+        "width": 210,
+        "height": 320,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 7326.5625,
+        "y": 16570,
+        "width": 1700,
+        "height": 350,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 9076.5625,
+        "y": 6370,
+        "width": 130,
+        "height": 2350,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 3986.5625,
+        "y": 6860,
+        "width": 10,
+        "height": 2080,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 6266.5625,
+        "y": 7920,
+        "width": 230,
+        "height": 1930,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 9176.5625,
+        "y": 6370,
+        "width": 1020,
+        "height": 310,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 10016.5625,
+        "y": 6530,
+        "width": 180,
+        "height": 820,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 9786.5625,
+        "y": 7180,
+        "width": 380,
+        "height": 190,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 9626.5625,
+        "y": 7030,
+        "width": 170,
+        "height": 320,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 9186.5625,
+        "y": 7680,
+        "width": 990,
+        "height": 120,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 6376.5625,
+        "y": 7670,
+        "width": 10,
+        "height": 320,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 8226.5625,
+        "y": 10340,
+        "width": 1340,
+        "height": 320,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 6.5625,
+        "y": 6720,
+        "width": 380,
+        "height": 2280,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 2126.5625,
+        "y": 12300,
+        "width": 1290,
+        "height": 600,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 3326.5625,
+        "y": 11490,
+        "width": 160,
+        "height": 1380,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 3796.5625,
+        "y": 6900,
+        "width": 410,
+        "height": 2080,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 1756.5625,
+        "y": 6480,
+        "width": 270,
+        "height": 1130,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 10506.5625,
+        "y": 12200,
+        "width": 630,
+        "height": 870,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 14116.5625,
+        "y": 400,
+        "width": 3390,
+        "height": 930,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 15326.5625,
+        "y": 6120,
+        "width": 1590,
+        "height": 260,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 15196.5625,
+        "y": 10400,
+        "width": 1710,
+        "height": 190,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 66.5625,
+        "y": 70,
+        "width": 50,
+        "height": 19910,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 116.5625,
+        "y": 19980,
+        "width": 0,
+        "height": 0,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 76.5625,
+        "y": 110,
+        "width": 19890,
+        "height": 60,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 19836.5625,
+        "y": 150,
+        "width": 60,
+        "height": 19840,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 19836.5625,
+        "y": 19990,
+        "width": 0,
+        "height": 0,
+        "properties": {}
+    },
+    {
+        "type": "wall",
+        "x": 76.5625,
+        "y": 19930,
+        "width": 19790,
+        "height": 50,
+        "properties": {}
+    },
+    {
+        "type": "spawn",
+        "x": 9686.5625,
+        "y": 6820,
+        "width": 330,
+        "height": 370,
+        "properties": {
+            "spawnType": "common"
+        }
+    },
+    {
+        "type": "spawn",
+        "x": 10066.5625,
+        "y": 8680,
+        "width": 2410,
+        "height": 1600,
+        "properties": {
+            "spawnType": "mythic"
+        }
+    },
+    {
+        "type": "teleporter",
+        "x": 14976.5625,
+        "y": 6980,
+        "width": 490,
+        "height": 560,
+        "properties": {
+            "teleportTo": {
+                "x": 13067,
+                "y": 6450
+            }
+        }
+    },
+    {
+        "type": "teleporter",
+        "x": 11286.5625,
+        "y": 13580,
+        "width": 1530,
+        "height": 950,
+        "properties": {
+            "teleportTo": {
+                "x": 13067,
+                "y": 6450
+            }
+        }
+    },
+    {
+        "type": "teleporter",
+        "x": 1046.5625,
+        "y": 10100,
+        "width": 240,
+        "height": 150,
+        "properties": {
+            "teleportTo": {
+                "x": 13067,
+                "y": 6450
+            }
+        }
     }
 ];
 // Add map validation function

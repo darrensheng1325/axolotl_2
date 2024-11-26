@@ -364,6 +364,34 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 if (Math.abs(player.knockbackY) < 0.1) player.knockbackY = 0;
             }
 
+            // Ensure player stays within world bounds
+            newX = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH, newX));
+            newY = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT, newY));
+
+            // Check for wall collisions
+            let collision = false;
+            for (const element of WORLD_MAP) {
+                if (element.type === 'wall') {
+                    const wallX = element.x * SCALE_FACTOR;
+                    const wallY = element.y * SCALE_FACTOR;
+                    const wallWidth = element.width * SCALE_FACTOR;
+                    const wallHeight = element.height * SCALE_FACTOR;
+
+                    if (
+                        newX < wallX + wallWidth &&
+                        newX + PLAYER_SIZE > wallX &&
+                        newY < wallY + wallHeight &&
+                        newY + PLAYER_SIZE > wallY
+                    ) {
+                        collision = true;
+                        // Restore previous valid position
+                        newX = player.x;
+                        newY = player.y;
+                        break;
+                    }
+                }
+            }
+
             // Check for item collisions
             const ITEM_PICKUP_RADIUS = 40;  // Radius for item pickup
             for (let i = items.length - 1; i >= 0; i--) {
@@ -409,8 +437,6 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                     });
                 }
             }
-
-            let collision = false;
 
             // Check collision with enemies first
             for (const enemy of enemies) {
@@ -493,12 +519,14 @@ io.on('connection', (socket: AuthenticatedSocket) => {
                 }
             }
 
-            // Update player position even if there was a collision (to apply knockback)
-            player.x = Math.max(0, Math.min(ACTUAL_WORLD_WIDTH, newX));
-            player.y = Math.max(0, Math.min(ACTUAL_WORLD_HEIGHT, newY));
-            player.angle = movementData.angle;
-            player.velocityX = movementData.velocityX;
-            player.velocityY = movementData.velocityY;
+            // Update player position if no collision
+            if (!collision) {
+                player.x = newX;
+                player.y = newY;
+                player.angle = movementData.angle;
+                player.velocityX = movementData.velocityX;
+                player.velocityY = movementData.velocityY;
+            }
 
             // Always emit the updated position
             io.emit('playerMoved', player);
