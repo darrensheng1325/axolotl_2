@@ -137,7 +137,7 @@ export class Game {
   private useMouseControls: boolean = false;
   private mouseX: number = 0;
   private mouseY: number = 0;
-  private showHitboxes: boolean = true;  // Set to true to show hitboxes
+  private showHitboxes: boolean = false;  // Changed from true to false
   private titleScreen: HTMLElement | null;
   private nameInput: HTMLInputElement | null;
   private exitButton: HTMLElement | null;
@@ -190,6 +190,8 @@ export class Game {
 
   // Add to class properties at the top
   private backgroundImage: HTMLImageElement = new Image();
+
+  private wallTexture: HTMLImageElement = new Image(); // Add this to class properties
 
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
@@ -416,6 +418,12 @@ export class Game {
       this.backgroundImage.src = './assets/background.png';
       this.backgroundImage.onload = () => {
           console.log('Background image loaded successfully');
+      };
+
+      // Load wall texture
+      this.wallTexture.src = './assets/wall.png';
+      this.wallTexture.onload = () => {
+          console.log('Wall texture loaded successfully');
       };
   }
 
@@ -3220,7 +3228,6 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
   private drawMap() {
       // Draw all map elements
       this.world_map_data.forEach(element => {
-          // No need to scale coordinates since they're already in world space
           const x = element.x;
           const y = element.y;
           const width = element.width;
@@ -3233,14 +3240,26 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
               y + height >= this.cameraY &&
               y <= this.cameraY + this.canvas.height
           ) {
-              this.ctx.fillStyle = this.MAP_COLORS[element.type];
-              this.ctx.fillRect(x, y, width, height);
+              if (element.type === 'wall') {
+                  // Draw wall texture tiled
+                  const pattern = this.ctx.createPattern(this.wallTexture, 'repeat');
+                  if (pattern) {
+                      this.ctx.save();
+                      this.ctx.fillStyle = pattern;
+                      this.ctx.fillRect(x, y, width, height);
+                      this.ctx.restore();
+                  }
+              } else {
+                  // Draw other elements normally
+                  this.ctx.fillStyle = this.MAP_COLORS[element.type];
+                  this.ctx.fillRect(x, y, width, height);
 
-              // Add visual indicators for special elements
-              if (element.type === 'teleporter') {
-                  this.drawTeleporter(x, y, width, height);
-              } else if (element.type === 'spawn') {
-                  this.drawSpawnPoint(x, y, width, height, element.properties?.spawnType);
+                  // Add visual indicators for special elements
+                  if (element.type === 'teleporter') {
+                      this.drawTeleporter(x, y, width, height);
+                  } else if (element.type === 'spawn') {
+                      this.drawSpawnPoint(x, y, width, height, element.properties?.spawnType);
+                  }
               }
 
               // Draw debug info if hitboxes are enabled
@@ -3426,53 +3445,60 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
   }
 
   private drawEnemy(enemy: Enemy) {
-      const sizeMultiplier = this.ENEMY_SIZE_MULTIPLIERS[enemy.tier];
-      const enemySize = 40 * sizeMultiplier;
+    const sizeMultiplier = this.ENEMY_SIZE_MULTIPLIERS[enemy.tier];
+    const enemySize = 40 * sizeMultiplier;
 
-      this.ctx.save();
-      this.ctx.translate(enemy.x, enemy.y);
-      this.ctx.rotate(enemy.angle);
+    this.ctx.save();
+    this.ctx.translate(enemy.x, enemy.y);
+    this.ctx.rotate(enemy.angle);
 
-      // Draw enemy sprite based on type
-      const sprite = enemy.type === 'octopus' ? this.octopusSprite : this.fishSprite;
-      this.ctx.drawImage(
-          sprite,
-          -enemySize / 2,
-          -enemySize / 2,
-          enemySize,
-          enemySize
-      );
+    // Draw enemy sprite based on type
+    const sprite = enemy.type === 'octopus' ? this.octopusSprite : this.fishSprite;
+    this.ctx.drawImage(
+        sprite,
+        -enemySize / 2,
+        -enemySize / 2,
+        enemySize,
+        enemySize
+    );
 
-      // Draw hitbox if enabled
-      if (this.showHitboxes) {
-          this.ctx.strokeStyle = this.ENEMY_COLORS[enemy.tier];
-          this.ctx.strokeRect(-enemySize/2, -enemySize/2, enemySize, enemySize);
-      }
+    // Draw hitbox if enabled
+    if (this.showHitboxes) {
+        this.ctx.strokeStyle = this.ENEMY_COLORS[enemy.tier];
+        this.ctx.strokeRect(-enemySize/2, -enemySize/2, enemySize, enemySize);
+    }
 
-      // Draw health bar
-      const healthBarWidth = enemySize;
-      const healthBarHeight = 5;
-      const healthBarY = -enemySize/2 - 10;
+    // Draw health bar
+    const healthBarWidth = enemySize;
+    const healthBarHeight = 5;
+    const healthBarY = -enemySize/2 - 10;
 
-      this.ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-      this.ctx.fillRect(-healthBarWidth/2, healthBarY, healthBarWidth, healthBarHeight);
+    this.ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+    this.ctx.fillRect(-healthBarWidth/2, healthBarY, healthBarWidth, healthBarHeight);
 
-      this.ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
-      this.ctx.fillRect(
-          -healthBarWidth/2,
-          healthBarY,
-          (enemy.health / this.ENEMY_MAX_HEALTH[enemy.tier]) * healthBarWidth,
-          healthBarHeight
-      );
+    this.ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+    this.ctx.fillRect(
+        -healthBarWidth/2,
+        healthBarY,
+        (enemy.health / this.ENEMY_MAX_HEALTH[enemy.tier]) * healthBarWidth,
+        healthBarHeight
+    );
 
-      // Draw enemy tier
-      this.ctx.fillStyle = 'white';
-      this.ctx.textAlign = 'center';
-      this.ctx.font = '12px Arial';
-      this.ctx.fillText(enemy.tier.toUpperCase(), 0, enemySize/2 + 20);
+    // Draw enemy tier with tier color
+    this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
+    this.ctx.textAlign = 'center';
+    this.ctx.font = '12px Arial'; // Made text bold for better visibility
+    
+    // Add black outline to text for better visibility
+    this.ctx.strokeStyle = 'white';
+    this.ctx.lineWidth = 1;
+    this.ctx.strokeText(enemy.tier.toUpperCase(), 0, enemySize/2 + 20);
+    
+    // Draw the text
+    this.ctx.fillText(enemy.tier.toUpperCase(), 0, enemySize/2 + 20);
 
-      this.ctx.restore();
-  }
+    this.ctx.restore();
+}
 
   private drawItem(item: Item) {
       const sprite = this.itemSprites[item.type];

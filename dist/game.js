@@ -88,7 +88,7 @@ class Game {
         this.useMouseControls = false;
         this.mouseX = 0;
         this.mouseY = 0;
-        this.showHitboxes = true; // Set to true to show hitboxes
+        this.showHitboxes = false; // Changed from true to false
         this.playerHue = 0;
         this.playerColor = 'hsl(0, 100%, 50%)';
         this.LOADOUT_SLOTS = 10;
@@ -132,6 +132,7 @@ class Game {
         this.lastServerUpdate = 0; // Add this property for server update time
         // Add to class properties at the top
         this.backgroundImage = new Image();
+        this.wallTexture = new Image(); // Add this to class properties
         //console.log('Game constructor called');
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
@@ -315,6 +316,11 @@ class Game {
         this.backgroundImage.src = './assets/background.png';
         this.backgroundImage.onload = () => {
             console.log('Background image loaded successfully');
+        };
+        // Load wall texture
+        this.wallTexture.src = './assets/wall.png';
+        this.wallTexture.onload = () => {
+            console.log('Wall texture loaded successfully');
         };
     }
     async initializeSprites() {
@@ -2675,7 +2681,6 @@ class Game {
     drawMap() {
         // Draw all map elements
         this.world_map_data.forEach(element => {
-            // No need to scale coordinates since they're already in world space
             const x = element.x;
             const y = element.y;
             const width = element.width;
@@ -2685,14 +2690,27 @@ class Game {
                 x <= this.cameraX + this.canvas.width &&
                 y + height >= this.cameraY &&
                 y <= this.cameraY + this.canvas.height) {
-                this.ctx.fillStyle = this.MAP_COLORS[element.type];
-                this.ctx.fillRect(x, y, width, height);
-                // Add visual indicators for special elements
-                if (element.type === 'teleporter') {
-                    this.drawTeleporter(x, y, width, height);
+                if (element.type === 'wall') {
+                    // Draw wall texture tiled
+                    const pattern = this.ctx.createPattern(this.wallTexture, 'repeat');
+                    if (pattern) {
+                        this.ctx.save();
+                        this.ctx.fillStyle = pattern;
+                        this.ctx.fillRect(x, y, width, height);
+                        this.ctx.restore();
+                    }
                 }
-                else if (element.type === 'spawn') {
-                    this.drawSpawnPoint(x, y, width, height, element.properties?.spawnType);
+                else {
+                    // Draw other elements normally
+                    this.ctx.fillStyle = this.MAP_COLORS[element.type];
+                    this.ctx.fillRect(x, y, width, height);
+                    // Add visual indicators for special elements
+                    if (element.type === 'teleporter') {
+                        this.drawTeleporter(x, y, width, height);
+                    }
+                    else if (element.type === 'spawn') {
+                        this.drawSpawnPoint(x, y, width, height, element.properties?.spawnType);
+                    }
                 }
                 // Draw debug info if hitboxes are enabled
                 if (this.showHitboxes) {
@@ -2847,10 +2865,15 @@ class Game {
         this.ctx.fillRect(-healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight);
         this.ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
         this.ctx.fillRect(-healthBarWidth / 2, healthBarY, (enemy.health / this.ENEMY_MAX_HEALTH[enemy.tier]) * healthBarWidth, healthBarHeight);
-        // Draw enemy tier
-        this.ctx.fillStyle = 'white';
+        // Draw enemy tier with tier color
+        this.ctx.fillStyle = this.ENEMY_COLORS[enemy.tier];
         this.ctx.textAlign = 'center';
-        this.ctx.font = '12px Arial';
+        this.ctx.font = '12px Arial'; // Made text bold for better visibility
+        // Add black outline to text for better visibility
+        this.ctx.strokeStyle = 'white';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeText(enemy.tier.toUpperCase(), 0, enemySize / 2 + 20);
+        // Draw the text
         this.ctx.fillText(enemy.tier.toUpperCase(), 0, enemySize / 2 + 20);
         this.ctx.restore();
     }
