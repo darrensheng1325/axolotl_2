@@ -193,9 +193,6 @@ export class Game {
 
   private wallTexture: HTMLImageElement = new Image(); // Add this to class properties
 
-  // Add frame counter
-  private frameCount: number = 0;
-
   constructor(isSinglePlayer: boolean = false) {
       //console.log('Game constructor called');
       this.canvas = document.getElementById('gameCanvas') as HTMLCanvasElement;
@@ -1267,21 +1264,30 @@ export class Game {
       enemiesData.forEach(enemy => this.enemies.set(enemy.id, enemy));
   }
 
-  // Update the gameLoop method to be more efficient
   private gameLoop() {
     // Calculate delta time
     const currentTime = performance.now();
     const deltaTime = (currentTime - this.lastUpdateTime) / 16.67; // Normalize to ~60 FPS
     this.lastUpdateTime = currentTime;
 
-    // Only update if the tab is visible
-    if (document.hidden) {
-        requestAnimationFrame(() => this.gameLoop());
-        return;
-    }
-
     // Clear the canvas
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Draw tiled background
+    const pattern = this.ctx.createPattern(this.backgroundImage, 'repeat');
+    if (pattern) {
+        this.ctx.save();
+        // Apply camera transform to background
+        this.ctx.translate(-this.cameraX * 0.5, -this.cameraY * 0.5); // Parallax effect
+        this.ctx.fillStyle = pattern;
+        this.ctx.fillRect(
+            this.cameraX * 0.5, 
+            this.cameraY * 0.5, 
+            this.canvas.width + this.cameraX * 0.5, 
+            this.canvas.height + this.cameraY * 0.5
+        );
+        this.ctx.restore();
+    }
 
     // Get current player and update
     const currentSocketId = this.socket?.id;
@@ -1294,76 +1300,46 @@ export class Game {
         }
     }
 
-    // Only draw what's visible in the viewport
-    const viewport = {
-        left: this.cameraX - 100,
-        right: this.cameraX + this.canvas.width + 100,
-        top: this.cameraY - 100,
-        bottom: this.cameraY + this.canvas.height + 100
-    };
-
     this.ctx.save();
     this.ctx.translate(-this.cameraX, -this.cameraY);
 
-    // Draw background only for visible area
-    const pattern = this.ctx.createPattern(this.backgroundImage, 'repeat');
-    if (pattern) {
-        this.ctx.save();
-        this.ctx.translate(-this.cameraX * 0.5, -this.cameraY * 0.5);
-        this.ctx.fillStyle = pattern;
-        this.ctx.fillRect(
-            this.cameraX * 0.5,
-            this.cameraY * 0.5,
-            this.canvas.width,
-            this.canvas.height
-        );
-        this.ctx.restore();
-    }
+    // Draw world bounds
+    this.ctx.strokeStyle = 'black';
+    this.ctx.strokeRect(0, 0, ACTUAL_WORLD_WIDTH, ACTUAL_WORLD_HEIGHT);
 
-    // Draw only visible map elements
-    this.world_map_data.forEach(element => {
-        if (this.isInViewport(element.x, element.y, viewport)) {
-            if (element.type === 'wall') {
-                const pattern = this.ctx.createPattern(this.wallTexture, 'repeat');
-                if (pattern) {
-                    this.ctx.fillStyle = pattern;
-                    this.ctx.fillRect(element.x, element.y, element.width, element.height);
-                }
-            } else {
-                this.ctx.fillStyle = this.MAP_COLORS[element.type];
-                this.ctx.fillRect(element.x, element.y, element.width, element.height);
-            }
-        }
+    // Draw zone boundaries
+    const zoneWidth = ACTUAL_WORLD_WIDTH / 6;
+    const zones = [
+        { name: 'Common', color: 'rgba(128, 128, 128, 0.1)' },
+        { name: 'Uncommon', color: 'rgba(144, 238, 144, 0.1)' },
+        { name: 'Rare', color: 'rgba(0, 0, 255, 0.1)' },
+        { name: 'Epic', color: 'rgba(128, 0, 128, 0.1)' },
+        { name: 'Legendary', color: 'rgba(255, 165, 0, 0.1)' },
+        { name: 'Mythic', color: 'rgba(255, 0, 0, 0.1)' }
+    ];
+
+    zones.forEach((zone, index) => {
+        const x = index * zoneWidth;
+        this.ctx.fillStyle = zone.color;
+        this.ctx.fillRect(x, 0, zoneWidth, ACTUAL_WORLD_HEIGHT);
+        
+        // Draw zone name
+        this.ctx.fillStyle = 'black';
+        this.ctx.font = '20px Arial';
+        this.ctx.fillText(zone.name, x + 10, 30);
     });
 
-    // Draw game objects only if in viewport
-    this.players.forEach(player => {
-        if (this.isInViewport(player.x, player.y, viewport)) {
-            this.drawPlayer(player);
-        }
-    });
+    // Draw map elements
+    this.drawMap();
 
-    this.enemies.forEach(enemy => {
-        if (this.isInViewport(enemy.x, enemy.y, viewport)) {
-            this.drawEnemy(enemy);
-        }
-    });
-
-    this.items.forEach(item => {
-        if (this.isInViewport(item.x, item.y, viewport)) {
-            this.drawItem(item);
-        }
-    });
+    // Draw game objects
+    this.drawGameObjects();
 
     this.ctx.restore();
 
     // Draw UI elements (after restore)
-    // Only update UI every few frames
-    if (this.frameCount % 3 === 0) {
-        this.drawUI();
-    }
+    this.drawUI();
 
-    this.frameCount++;
     requestAnimationFrame(() => this.gameLoop());
 }
 
@@ -1545,10 +1521,10 @@ private drawGameObjects() {
 }
 
 private isInViewport(x: number, y: number, viewport: { left: number, right: number, top: number, bottom: number }): boolean {
-    return x >= viewport.left && 
-           x <= viewport.right && 
-           y >= viewport.top && 
-           y <= viewport.bottom;
+    return x >= viewport.left - 100 && 
+           x <= viewport.right + 100 && 
+           y >= viewport.top - 100 && 
+           y <= viewport.bottom + 100;
 }
 
   private async setupItemSprites() {
@@ -1759,11 +1735,8 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
       }
   }
 
-  // Optimize drawMinimap to update less frequently
+  // Add minimap drawing
   private drawMinimap() {
-    // Only update minimap every 10 frames
-    if (this.frameCount % 10 !== 0) return;
-
     const minimapX = this.canvas.width - this.MINIMAP_WIDTH - this.MINIMAP_PADDING;
     const minimapY = this.MINIMAP_PADDING;
     const minimapScale = {
@@ -1771,36 +1744,52 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
         y: this.MINIMAP_HEIGHT / ACTUAL_WORLD_HEIGHT
     };
 
-    // Draw minimap background
+    // Draw minimap background (white instead of black)
     this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     this.ctx.fillRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
 
     // Draw only walls on minimap
     this.world_map_data.forEach(element => {
+        // Only draw walls
         if (element.type === 'wall') {
             const scaledX = minimapX + (element.x * minimapScale.x);
             const scaledY = minimapY + (element.y * minimapScale.y);
             const scaledWidth = element.width * minimapScale.x;
             const scaledHeight = element.height * minimapScale.y;
 
-            this.ctx.fillStyle = '#000000';
+            this.ctx.fillStyle = '#000000'; // Black for walls
             this.ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
         }
     });
 
-    // Draw players
+    // Draw all players on minimap with solid colors
     this.players.forEach(player => {
-        this.ctx.fillStyle = player.id === this.socket.id ? '#FF0000' : '#000000';
+        this.ctx.fillStyle = player.id === this.socket.id ? '#FF0000' : '#000000'; // Red for current player, black for others
         this.ctx.beginPath();
         this.ctx.arc(
             minimapX + (player.x * minimapScale.x),
             minimapY + (player.y * minimapScale.y),
-            4,
+            4, // Slightly larger dots
             0,
             Math.PI * 2
         );
         this.ctx.fill();
     });
+
+    // Draw viewport rectangle in black
+    this.ctx.strokeStyle = '#000000';
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeRect(
+        minimapX + (this.cameraX * minimapScale.x),
+        minimapY + (this.cameraY * minimapScale.y),
+        (this.canvas.width * minimapScale.x),
+        (this.canvas.height * minimapScale.y)
+    );
+
+    // Draw border
+    this.ctx.strokeStyle = '#000000';
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeRect(minimapX, minimapY, this.MINIMAP_WIDTH, this.MINIMAP_HEIGHT);
 }
 
   private hideTitleScreen() {
@@ -3397,52 +3386,63 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
   // Add these methods to the Game class
 
   private drawUI() {
+      // Draw player stats
       const player = this.players.get(this.socket?.id || '');
-      if (!player) return;
+      if (player) {
+          // Draw health bar
+          const healthBarWidth = 200;
+          const healthBarHeight = 20;
+          const healthX = 20;
+          const healthY = 20;
 
-      // Cache frequently used values
-      const healthBarWidth = 200;
-      const healthBarHeight = 20;
-      const healthX = 20;
-      const healthY = 20;
+          // Health bar background
+          this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          this.ctx.fillRect(healthX, healthY, healthBarWidth, healthBarHeight);
 
-      // Draw health bar background once
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      this.ctx.fillRect(healthX, healthY, healthBarWidth, healthBarHeight);
+          // Health bar fill
+          this.ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+          this.ctx.fillRect(
+              healthX,
+              healthY,
+              (player.health / player.maxHealth) * healthBarWidth,
+              healthBarHeight
+          );
 
-      // Draw health bar
-      const healthRatio = player.health / player.maxHealth;
-      this.ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
-      this.ctx.fillRect(healthX, healthY, healthBarWidth * healthRatio, healthBarHeight);
+          // Health text
+          this.ctx.fillStyle = 'white';
+          this.ctx.font = '14px Arial';
+          this.ctx.fillText(
+              `Health: ${Math.round(player.health)}/${player.maxHealth}`,
+              healthX + 5,
+              healthY + 15
+          );
 
-      // Draw XP bar
-      const xpBarY = healthY + healthBarHeight + 5;
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      this.ctx.fillRect(healthX, xpBarY, healthBarWidth, healthBarHeight);
+          // Draw XP bar
+          const xpBarY = healthY + healthBarHeight + 5;
+          this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          this.ctx.fillRect(healthX, xpBarY, healthBarWidth, healthBarHeight);
 
-      const xpRatio = player.xp / player.xpToNextLevel;
-      this.ctx.fillStyle = 'rgba(0, 128, 255, 0.7)';
-      this.ctx.fillRect(healthX, xpBarY, healthBarWidth * xpRatio, healthBarHeight);
+          this.ctx.fillStyle = 'rgba(0, 128, 255, 0.7)';
+          this.ctx.fillRect(
+              healthX,
+              xpBarY,
+              (player.xp / player.xpToNextLevel) * healthBarWidth,
+              healthBarHeight
+          );
 
-      // Draw text
-      this.ctx.fillStyle = 'white';
-      this.ctx.font = '14px Arial';
-      this.ctx.fillText(
-          `Health: ${Math.round(player.health)}/${player.maxHealth}`,
-          healthX + 5,
-          healthY + 15
-      );
-      this.ctx.fillText(
-          `Level ${player.level} - XP: ${player.xp}/${player.xpToNextLevel}`,
-          healthX + 5,
-          xpBarY + 15
-      );
-
-      // Draw minimap and floating texts less frequently
-      if (this.frameCount % 3 === 0) {
-          this.drawMinimap();
-          this.drawFloatingTexts();
+          this.ctx.fillStyle = 'white';
+          this.ctx.fillText(
+              `Level ${player.level} - XP: ${player.xp}/${player.xpToNextLevel}`,
+              healthX + 5,
+              xpBarY + 15
+          );
       }
+
+      // Draw minimap
+      this.drawMinimap();
+
+      // Draw floating texts
+      this.drawFloatingTexts();
   }
 
   private drawPlayer(player: Player) {
