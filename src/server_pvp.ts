@@ -349,6 +349,22 @@ interface AuthenticatedSocket extends Socket {
     username?: string;
 }
 
+// Add after other interfaces at the top
+interface ChatMessage {
+    sender: string;
+    content: string;
+    timestamp: number;
+}
+
+// Add before io.on('connection'...)
+function chatMessage(content: string): ChatMessage {
+    return {
+        sender: 'System',
+        content,
+        timestamp: Date.now()
+    };
+}
+
 io.on('connection', (socket: AuthenticatedSocket) => {
     console.log('A user connected');
 
@@ -411,6 +427,15 @@ io.on('connection', (socket: AuthenticatedSocket) => {
 
             // Notify other players
             socket.broadcast.emit('newPlayer', players[socket.id]);
+            io.emit('serverType', 'PVP');
+            io.emit('runJS', 'alert("A new player has joined this PVP server");');
+            const chatMessage: ChatMessage = {
+                sender: "SERVER",
+                content: `${players[socket.id].name} has joined the PVP server`,
+                timestamp: Date.now()
+            };
+            chatHistory.push(chatMessage);
+            io.emit('chatMessage', chatMessage);
         } else {
             socket.emit('authenticated', {
                 success: false,

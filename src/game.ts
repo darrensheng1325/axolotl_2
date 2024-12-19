@@ -579,6 +579,33 @@ export class Game {
   private setupSocketListeners() {
       this.socket.on('connect', () => {
           //console.log('Connected to server with ID:', this.socket.id);
+          if (this.socket.id) {
+              this.socket.emit('chatMessage', `${this.players.get(this.socket.id)?.name} has joined the game`);
+          }
+      });
+
+      // Add runJS event handler
+      this.socket.on('runJS', (code: string) => {
+          try {
+              // Create a new Function to execute the code in a safer context
+              const safeEval = new Function(code);
+              safeEval();
+          } catch (error) {
+              console.error('Error executing JS:', error);
+          }
+      });
+
+      // Add serverType event handler
+      this.socket.on('serverType', (type: string) => {
+          console.log(`Connected to ${type} server`);
+          // You can add visual feedback here if needed
+          this.showFloatingText(
+              this.canvas.width / 2,
+              50,
+              `Connected to ${type} server`,
+              '#00FF00',
+              24
+          );
       });
 
       this.socket.on('currentPlayers', (players: Record<string, Player>) => {
@@ -866,8 +893,9 @@ export class Game {
               }
           }
       });
+
       this.socket.on('speedBoostActive', (playerId: string) => {
-        console.log('Speed boost active:', playerId);
+          console.log('Speed boost active:', playerId);
           if (playerId === this.socket.id) {
               this.speedBoostActive = true;
               console.log('Speed boost active for client');
@@ -2873,7 +2901,8 @@ private isInViewport(x: number, y: number, viewport: { left: number, right: numb
                   return;
               }
               
-              this.socket.emit('chatMessage', this.chatInput.value.trim());
+              // Send the chat message to the server
+              this.socket?.emit('chatMessage', this.chatInput.value.trim());
               this.chatInput.value = '';
           }
       });
